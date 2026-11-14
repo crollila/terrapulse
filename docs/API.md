@@ -6,21 +6,24 @@ live service are at `/docs`.
 | Live API | Static file (under `frontend/public/data/`) | Returns |
 |---|---|---|
 | `GET /api/health` | — | `{status, version}` |
-| `GET /api/catalog` | `catalog.json` | period, minimum window, regions, variables, source |
+| `GET /api/catalog` | `catalog.json` | minimum window, regions, variables (each with its own `period` and `source`), `sources` |
 | `GET /api/analysis/{region}/{variable}` | `analysis/{region}/{variable}.json` | series, full-record trend, all windows, verdict, quality, provenance |
 | `GET /api/overview/{variable}` | `overview/{variable}.json` | full-record trend for every region, with FDR-adjusted p-values |
 | `GET /api/trend/{region}/{variable}?start=&end=` | — (live only) | every statistic for one custom window of 15+ years |
 | `GET /api/provenance` | `provenance.json` | request URL, retrieval time and grid for every series |
 
-Unknown region or variable: `404`. Window shorter than 15 years or outside 1981–2025: `422`.
+Unknown region or variable: `404`. A variable whose data has not been delivered (NDVI, until its
+regional files exist) is not listed in the catalog and also returns `404`. Window shorter than 15
+years or outside the variable's period: `422`. `start` and `end` default to the variable's period.
 
 ## `analysis` payload
 
 ```jsonc
 {
   "region":   { "id", "name", "country", "bbox": [lonW, latS, lonE, latN], "setting" },
-  "variable": { "id", "name", "long_name", "units", "definition", "decimals" },
-  "period":   [1981, 2025],
+  "variable": { "id", "name", "long_name", "units", "definition", "decimals", "source", "period" },
+  "period":   [1981, 2025],           // per variable; [2000, 2026] for NDVI
+  "first_month": "1981-01", "last_month": "2025-12",
   "series": {
     "t": [1981.0417, ...],          // decimal year at mid-month, 540 values
     "year": [...], "month": [...],
@@ -45,7 +48,8 @@ Unknown region or variable: `404`. Window shorter than 15 years or outside 1981�
                        "slope_min", "slope_max" },
   "verdict": { "code": "robust | date_sensitive | mixed | not_detected", "title", "text", "direction" },
   "quality": { "months_total", "months_missing", "coverage", "grid_cells", "min_cells_valid",
-               "lag1_autocorrelation", "n_effective", "units_reported_by_nasa" },
+               "lag1_autocorrelation", "n_effective", "units_reported_by_nasa",
+               "months_used", "calendar_months_excluded" },
   "provenance": { "request_url", "retrieved_utc", "api_version", "sources", "grid", "source" }
 }
 ```

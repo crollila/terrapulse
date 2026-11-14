@@ -15,7 +15,9 @@ dependencies = [
 ]
 
 [dependency-groups]
-dev = ["pytest>=8", "pymannkendall>=1.4"]
+# Needed only to turn gridded MOD13C2 files into regional CSVs (terrapulse.ndvi_regions).
+ndvi = ["xarray>=2024.6", "netCDF4>=1.7"]
+dev = ["pytest>=8", "pymannkendall>=1.4", { include-group = "ndvi" }]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

@@ -22,6 +22,9 @@ import pandas as pd
 
 from .catalog import END_YEAR, REGIONS, SOURCE, START_YEAR, VARIABLES
 
+# The variables this module fetches (NDVI comes from MOD13C2 files, see ndvi.py).
+MERRA2_VARIABLES = [v for v, meta in VARIABLES.items() if meta["source"] == "merra2"]
+
 DATA_DIR = Path(__file__).resolve().parent.parent / "data"
 RAW_DIR = DATA_DIR / "raw"
 PROCESSED_DIR = DATA_DIR / "processed"
@@ -116,7 +119,7 @@ def build(force: bool = False) -> None:
         for region_id in REGIONS:
             columns: dict[str, pd.Series] = {}
             base: pd.DataFrame | None = None
-            for variable in VARIABLES:
+            for variable in MERRA2_VARIABLES:
                 payload = fetch_raw(region_id, variable, client, force=force)
                 frame, grid_info = reduce_to_series(payload, variable)
                 base = frame[["year", "month"]] if base is None else base

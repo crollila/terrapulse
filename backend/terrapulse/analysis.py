@@ -11,11 +11,12 @@ from functools import lru_cache
 import numpy as np
 from statsmodels.stats.multitest import multipletests
 
-from . import stats
-from .catalog import END_YEAR, REGIONS, SOURCE, START_YEAR, VARIABLES
-from .power import load_provenance, load_series
+from . import data, stats
+from .catalog import REGIONS, VARIABLES, variable_source
 
 MIN_WINDOW_YEARS = 15
+# A calendar month is analysed only if it has data in at least this share of years.
+MIN_CALENDAR_MONTH_COVERAGE = 0.8
 ALPHA = stats.ALPHA
 
 
@@ -63,8 +64,12 @@ def full_trend(t: np.ndarray, anomalies: np.ndarray, year: np.ndarray, start: in
     ols = stats.ols_trend(tt, yy)
     mk = stats.mann_kendall(yy)
     sen = stats.theil_sen(tt, yy)
-    n_years = end - start + 1
-    detect = stats.years_to_detect(ols["slope"], ols["residual_std"], ols["lag1_autocorrelation"], n_years)
+    # Length of the record in years, counted in calendar months so that a record
+    # that starts or ends mid-year (NDVI begins in February 2000) is not overstated.
+    record_years = int(sel.sum()) / 12
+    if record_years.is_integer():
+        record_years = int(record_years)
+    detect = stats.years_to_detect(ols["slope"], ols["residual_std"], ols["lag1_autocorrelation"], record_years)
     return {
         "start": start,
         "end": end,
@@ -100,10 +105,10 @@ def full_trend(t: np.ndarray, anomalies: np.ndarray, year: np.ndarray, start: in
     }
 
 
-def all_windows(t: np.ndarray, anomalies: np.ndarray, year: np.ndarray) -> list[dict]:
+def all_windows(t: np.ndarray, anomalies: np.ndarray, year: np.ndarray, first_year: int, last_year: int) -> list[dict]:
     out = []
-    for start in range(START_YEAR, END_YEAR - MIN_WINDOW_YEARS + 2):
-        for end in range(start + MIN_WINDOW_YEARS - 1, END_YEAR + 1):
+    for start in range(first_year, last_year - MIN_WINDOW_YEARS + 2):
+        for end in range(start + MIN_WINDOW_YEARS - 1, last_year + 1):
             out.append(window_trend(t, anomalies, year, start, end))
     return out
 
@@ -180,41 +185,62 @@ def verdict(trend: dict, windows_summary: dict, units: str) -> dict:
 
 @lru_cache(maxsize=None)
 def _prepared(region_id: str, variable: str):
-    frame = load_series(region_id, variable)
+    frame = data.load_series(region_id, variable)
     year = frame["year"].to_numpy()
     month = frame["month"].to_numpy()
     values = frame["value"].to_numpy(dtype=float)
-    clim = stats.monthly_climatology(month, values)
-    anomalies = stats.deseasonalize(month, values, clim)
-    return frame, year, month, values, clim, anomalies, decimal_year(year, month)
+    # Calendar months that are missing in too many years are left out entirely
+    # (no effect on a complete series). ``used`` is what the statistics see.
+    used, excluded_months = stats.mask_sparse_calendar_months(month, values, MIN_CALENDAR_MONTH_COVERAGE)
+    clim = stats.monthly_climatology(month, used)
+    anomalies = stats.deseasonalize(month, used, clim)
+    return frame, year, month, values, clim, anomalies, decimal_year(year, month), excluded_months
 
 
-def custom_trend(region_id: str, variable: str, start: int, end: int) -> dict:
-    _, year, _, _, _, anomalies, t = _prepared(region_id, variable)
+def clear_caches() -> None:
+    """Forget cached results (used when the data files change, and in tests)."""
+    _prepared.cache_clear()
+    analysis.cache_clear()
+    overview.cache_clear()
+    data.clear_cache()
+
+
+def custom_trend(region_id: str, variable: str, start: int | None = None, end: int | None = None) -> dict:
+    _, year, _, _, _, anomalies, t, _ = _prepared(region_id, variable)
+    first_year, last_year = data.period(variable)
+    start = first_year if start is None else start
+    end = last_year if end is None else end
     if end - start + 1 < MIN_WINDOW_YEARS:
         raise ValueError(f"window must span at least {MIN_WINDOW_YEARS} years")
-    if start < START_YEAR or end > END_YEAR:
-        raise ValueError(f"window must lie within {START_YEAR}-{END_YEAR}")
+    if start < first_year or end > last_year:
+        raise ValueError(f"window must lie within {first_year}-{last_year}")
     return _clean(full_trend(t, anomalies, year, start, end))
 
 
 @lru_cache(maxsize=None)
 def analysis(region_id: str, variable: str) -> dict:
-    frame, year, month, values, clim, anomalies, t = _prepared(region_id, variable)
+    frame, year, month, values, clim, anomalies, t, excluded_months = _prepared(region_id, variable)
     var = VARIABLES[variable]
-    trend = full_trend(t, anomalies, year, START_YEAR, END_YEAR)
-    windows = all_windows(t, anomalies, year)
+    first_year, last_year = data.period(variable)
+    trend = full_trend(t, anomalies, year, first_year, last_year)
+    windows = all_windows(t, anomalies, year, first_year, last_year)
     wsum = summarize_windows(windows, trend["ols"]["slope_per_decade"])
-    prov = load_provenance()["series"][f"{region_id}/{variable}"]
-    annual = frame.groupby("year")["value"].mean()
+    prov = data.provenance_record(region_id, variable)
+    # Annual means only for years with all twelve months, so a partial first or
+    # last year (or a year with gaps) is not shown as if it were a full year.
+    by_year = frame.groupby("year")["value"]
+    annual = by_year.mean()[by_year.count() == 12]
     n_missing = int(np.isnan(values).sum())
+    n_used = int(np.isfinite(anomalies).sum())
     cells = frame["n_cells_valid"].to_numpy()
     d = var["decimals"]
     return _clean(
         {
             "region": {"id": region_id, **REGIONS[region_id]},
             "variable": {"id": variable, **var},
-            "period": [START_YEAR, END_YEAR],
+            "period": [first_year, last_year],
+            "first_month": f"{int(year[0])}-{int(month[0]):02d}",
+            "last_month": f"{int(year[-1])}-{int(month[-1]):02d}",
             "series": {
                 "t": [round(float(v), 4) for v in t],
                 "year": year.tolist(),
@@ -238,8 +264,10 @@ def analysis(region_id: str, variable: str) -> dict:
                 "lag1_autocorrelation": trend["noise"]["lag1_autocorrelation"],
                 "n_effective": trend["noise"]["n_effective"],
                 "units_reported_by_nasa": prov["units_reported"],
+                "months_used": n_used,
+                "calendar_months_excluded": excluded_months,
             },
-            "provenance": {**prov, "source": SOURCE},
+            "provenance": {**prov, "source": variable_source(variable)},
         }
     )
 
@@ -271,7 +299,7 @@ def overview(variable: str) -> dict:
     return _clean(
         {
             "variable": {"id": variable, **VARIABLES[variable]},
-            "period": [START_YEAR, END_YEAR],
+            "period": list(data.period(variable)),
             "regions": rows,
             "multiple_testing": {
                 "method": "Benjamini-Hochberg false discovery rate, alpha 0.05",

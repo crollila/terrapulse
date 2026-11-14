@@ -46,7 +46,7 @@ how to use it.
 forms an area-weighted regional mean, and computes all statistics with NumPy, pandas, SciPy and
 statsmodels. A FastAPI service serves the results; the same JSON is exported as static files for
 the public demo. The interface is Next.js, TypeScript and Tailwind CSS with a MapLibre map over
-NASA GIBS Blue Marble imagery and Plotly charts. Twenty-six automated tests verify the statistics
+NASA GIBS Blue Marble imagery and Plotly charts. More than sixty automated tests verify the statistics
 against statsmodels, pymannkendall, hand calculations and synthetic series with known trends.
 
 **What we found.** In this dataset, air temperature rose significantly in seven of the eight

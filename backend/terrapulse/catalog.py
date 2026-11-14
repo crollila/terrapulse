@@ -1,12 +1,20 @@
-"""Supported regions and variables.
+"""Supported regions, variables and data sources.
 
 Regions are latitude/longitude boxes no larger than 10 x 10 degrees (the NASA
-POWER regional API limit). Variables are NASA POWER monthly parameters whose
-source is the MERRA-2 reanalysis.
+POWER regional API limit).
+
+Every variable names its data source and its own analysis period:
+
+- ``merra2``: NASA POWER monthly parameters from the MERRA-2 reanalysis,
+  1981-2025, fetched by ``power.py``.
+- ``mod13c2``: MODIS/Terra NDVI (MOD13C2 v6.1), February 2000 onward, supplied
+  as regional CSV files and read by ``ndvi.py``. NDVI is listed here but is only
+  served once real regional files are present (see ``data.available``).
 """
 
 from __future__ import annotations
 
+# Period of the MERRA-2 variables (kept as module constants for power.py).
 START_YEAR = 1981
 END_YEAR = 2025
 
@@ -69,6 +77,8 @@ VARIABLES: dict[str, dict] = {
         "units": "°C",
         "definition": "Average air temperature two meters above the ground, about head height.",
         "decimals": 2,
+        "source": "merra2",
+        "period": [START_YEAR, END_YEAR],
     },
     "PRECTOTCORR": {
         "name": "Precipitation",
@@ -77,6 +87,8 @@ VARIABLES: dict[str, dict] = {
         "definition": "Average rain and melted snow reaching the surface each day. "
         "MERRA-2 adjusts its modelled precipitation toward gauge and satellite observations.",
         "decimals": 3,
+        "source": "merra2",
+        "period": [START_YEAR, END_YEAR],
     },
     "QV2M": {
         "name": "Humidity",
@@ -84,6 +96,8 @@ VARIABLES: dict[str, dict] = {
         "units": "g/kg",
         "definition": "Grams of water vapor in each kilogram of air near the ground.",
         "decimals": 3,
+        "source": "merra2",
+        "period": [START_YEAR, END_YEAR],
     },
     "WS10M": {
         "name": "Wind speed",
@@ -91,6 +105,8 @@ VARIABLES: dict[str, dict] = {
         "units": "m/s",
         "definition": "Average wind speed ten meters above the ground.",
         "decimals": 3,
+        "source": "merra2",
+        "period": [START_YEAR, END_YEAR],
     },
     "GWETROOT": {
         "name": "Root-zone soil wetness",
@@ -98,16 +114,73 @@ VARIABLES: dict[str, dict] = {
         "units": "fraction (0-1)",
         "definition": "How full of water the top meter of soil is: 0 is completely dry, 1 is saturated.",
         "decimals": 4,
+        "source": "merra2",
+        "period": [START_YEAR, END_YEAR],
+    },
+    "NDVI": {
+        "name": "Vegetation greenness",
+        "long_name": "Normalized Difference Vegetation Index (NDVI)",
+        "units": "NDVI",
+        "definition": "A satellite measure of how much green, leafy vegetation covers the ground. "
+        "It runs from about 0 (bare soil, snow, rock) to nearly 1 (dense green vegetation).",
+        "decimals": 4,
+        "source": "mod13c2",
+        # Calendar years that may contain data. The record starts in February 2000,
+        # so 2000 is a partial year, and the latest year may be partial too. The
+        # period actually served is read from the delivered files (ndvi.py).
+        "period": [2000, 2026],
     },
 }
 
-SOURCE = {
-    "dataset": "MERRA-2 (Modern-Era Retrospective analysis for Research and Applications, Version 2)",
-    "producer": "NASA Global Modeling and Assimilation Office (GMAO)",
-    "access": "NASA POWER Monthly and Annual API (NASA Langley Research Center)",
-    "access_url": "https://power.larc.nasa.gov/",
-    "api_endpoint": "https://power.larc.nasa.gov/api/temporal/monthly/regional",
-    "native_grid": "0.5° latitude x 0.625° longitude",
-    "kind": "Reanalysis: a global model constrained by satellite and ground observations. "
-    "Values are model-based estimates, not direct instrument readings.",
+SOURCES: dict[str, dict] = {
+    "merra2": {
+        "id": "merra2",
+        "short_name": "NASA MERRA-2 reanalysis",
+        "dataset": "MERRA-2 (Modern-Era Retrospective analysis for Research and Applications, Version 2)",
+        "producer": "NASA Global Modeling and Assimilation Office (GMAO)",
+        "access": "NASA POWER Monthly and Annual API (NASA Langley Research Center)",
+        "access_short": "NASA POWER API",
+        "access_url": "https://power.larc.nasa.gov/",
+        "api_endpoint": "https://power.larc.nasa.gov/api/temporal/monthly/regional",
+        "native_grid": "0.5° latitude x 0.625° longitude",
+        "kind": "Reanalysis: a global model constrained by satellite and ground observations. "
+        "Values are model-based estimates, not direct instrument readings.",
+        "caveat": "MERRA-2 is a reanalysis: a model constrained by satellite and ground observations, not a direct "
+        "measurement. Changes in the observing system over time (new satellites, fewer rain gauges) can create or "
+        "hide trends, especially for precipitation and soil wetness. Check important results against an "
+        "independent dataset.",
+        "credit": "NASA GMAO MERRA-2 via NASA POWER",
+    },
+    "mod13c2": {
+        "id": "mod13c2",
+        "short_name": "NASA MODIS/Terra vegetation index (MOD13C2 v6.1)",
+        "dataset": "MODIS/Terra Vegetation Indices Monthly L3 Global 0.05Deg CMG, Version 6.1 (MOD13C2)",
+        "producer": "NASA MODIS Land Science Team; distributed by NASA LP DAAC",
+        "access": "NASA LP DAAC (Earthdata); regional means computed by the team",
+        "access_short": "NASA LP DAAC",
+        "access_url": "https://doi.org/10.5067/MODIS/MOD13C2.061",
+        "doi": "10.5067/MODIS/MOD13C2.061",
+        "native_grid": "0.05° latitude x 0.05° longitude (climate modeling grid)",
+        "kind": "Satellite observation: a vegetation index computed from red and near-infrared reflectance "
+        "measured by the MODIS instrument on NASA's Terra satellite.",
+        "caveat": "NDVI is a satellite measurement of greenness, not a direct measure of plant health or biomass. "
+        "Clouds, snow, smoke and low sun angles lower it, and it saturates over dense forest. The record starts "
+        "in 2000, so it is shorter than the 1981-2025 weather variables and trends are harder to detect. "
+        "The Terra satellite's overpass time has drifted earlier since 2020, which NASA reports is affecting "
+        "recent data, so treat changes after about 2022 with extra care.",
+        "credit": "NASA MODIS/Terra MOD13C2 v6.1 via NASA LP DAAC",
+    },
 }
+
+# Backward-compatible name: the MERRA-2 source record.
+SOURCE = SOURCES["merra2"]
+
+
+def variable_period(variable: str) -> tuple[int, int]:
+    """Declared calendar-year bounds of a variable's record."""
+    start, end = VARIABLES[variable]["period"]
+    return int(start), int(end)
+
+
+def variable_source(variable: str) -> dict:
+    return SOURCES[VARIABLES[variable]["source"]]

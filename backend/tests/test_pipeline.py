@@ -6,8 +6,9 @@ from fastapi.testclient import TestClient
 
 from terrapulse import analysis as an
 from terrapulse.api import app
-from terrapulse.catalog import END_YEAR, REGIONS, START_YEAR, VARIABLES
-from terrapulse.power import load_provenance, load_series, reduce_to_series
+from terrapulse import data
+from terrapulse.catalog import END_YEAR, REGIONS, START_YEAR
+from terrapulse.power import MERRA2_VARIABLES, load_provenance, load_series, reduce_to_series
 
 client = TestClient(app)
 
@@ -47,7 +48,7 @@ def test_committed_nasa_series_are_complete_and_plausible(region):
         "GWETROOT": (0, 1),
     }
     prov = load_provenance()["series"]
-    for variable in VARIABLES:
+    for variable in MERRA2_VARIABLES:
         frame = load_series(region, variable)
         assert len(frame) == (END_YEAR - START_YEAR + 1) * 12
         assert frame["value"].notna().mean() > 0.98
@@ -62,7 +63,9 @@ def test_committed_nasa_series_are_complete_and_plausible(region):
 def test_catalog_and_health():
     assert client.get("/api/health").json()["status"] == "ok"
     cat = client.get("/api/catalog").json()
-    assert len(cat["regions"]) == len(REGIONS) and len(cat["variables"]) == len(VARIABLES)
+    assert len(cat["regions"]) == len(REGIONS)
+    assert [v["id"] for v in cat["variables"]] == data.available_variables()
+    assert set(MERRA2_VARIABLES) <= {v["id"] for v in cat["variables"]}
     for r in cat["regions"]:
         lon0, lat0, lon1, lat1 = r["bbox"]
         assert 2 <= lon1 - lon0 <= 10 and 2 <= lat1 - lat0 <= 10

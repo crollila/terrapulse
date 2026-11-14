@@ -8,6 +8,7 @@ TerraPulse is Team Orbital Alpha's entry for the NASA Space Apps Challenge 2026 
 - Live demo: https://crollila.github.io/terrapulse/
 - Methodology: [docs/METHODOLOGY.md](docs/METHODOLOGY.md)
 - API contract: [docs/API.md](docs/API.md)
+- Adding the NDVI data: [docs/NDVI_HANDOFF.md](docs/NDVI_HANDOFF.md)
 
 ## What it does
 
@@ -62,6 +63,11 @@ See [Limitations](docs/METHODOLOGY.md#7-limitations).
 | NASA POWER Monthly and Annual API v2.10.0, NASA LaRC | Regional data access (parameters `T2M`, `PRECTOTCORR`, `QV2M`, `WS10M`, `GWETROOT`) | https://power.larc.nasa.gov/ |
 | NASA GIBS, Blue Marble Shaded Relief and Bathymetry | Base map imagery | https://www.earthdata.nasa.gov/engage/open-data-services-software/earthdata-developer-portal/gibs-api |
 
+A sixth variable, vegetation greenness (NDVI) from MODIS/Terra MOD13C2 v6.1 (NASA LP DAAC,
+https://doi.org/10.5067/MODIS/MOD13C2.061), is supported by the pipeline and tests. It appears in
+the app only once a team member's regional files are added to `backend/data/ndvi/`; until then no
+NDVI values exist in the app. See [docs/NDVI_HANDOFF.md](docs/NDVI_HANDOFF.md).
+
 MERRA-2 is named in the challenge statement. The exact request URL, retrieval time, API version,
 grid-cell count and missing-month count for every series are recorded in
 [`backend/data/processed/provenance.json`](backend/data/processed/provenance.json) and shown in the
@@ -110,7 +116,7 @@ NEXT_PUBLIC_API_URL=http://localhost:8000 npm run dev
 cd backend
 uv run python -m terrapulse.power --force   # re-download every series from NASA POWER
 uv run python -m terrapulse.export          # recompute all statistics and rewrite the static JSON
-uv run pytest                               # 26 tests
+uv run pytest                               # 62 tests (1 skipped until NDVI files are delivered)
 ```
 
 No credentials are needed. NASA may revise MERRA-2 or POWER, so a later download can differ
@@ -124,7 +130,10 @@ Sen's slope), a hand calculation of the Weatherhead formula, and synthetic serie
 including a simulation showing that the persistence-adjusted test keeps the false-positive rate
 near 5% where the naive test exceeds 25%. It also checks the area weighting, fill-value handling,
 the completeness and physical plausibility of the committed NASA series, and the API contract.
-Synthetic data are used only in tests, never in the app.
+A further set checks that the static JSON served by the public site equals what the code computes,
+and covers the NDVI path: file validation, the regional reduction of gridded MOD13C2 data, a record
+with a different date range, and series with seasonal gaps.
+Synthetic data are used only in tests, in temporary folders, never in the app.
 
 ## Resources, licenses and credits
 
@@ -133,6 +142,7 @@ Synthetic data are used only in tests, never in the app.
 | NASA MERRA-2, NASA POWER, NASA GIBS | NASA open data, no restrictions on use; please cite |
 | Next.js, React, Tailwind CSS, FastAPI, uvicorn, httpx | MIT |
 | MapLibre GL JS, NumPy, pandas, SciPy, statsmodels | BSD-3-Clause |
+| xarray (Apache-2.0), netCDF4-python (MIT): used only by the NDVI reduction script | as stated |
 | Plotly.js, pymannkendall (tests only), pytest (tests only) | MIT |
 
 Methods: Sen (1968); Mann (1945); Kendall (1975); Hamed & Rao (1998); Weatherhead et al. (1998);
@@ -149,8 +159,9 @@ The code, tests and documentation in this repository were generated with an SI c
 (Anthropic Claude, via Claude Code) during the hackathon on November 14–15, 2026, working from the
 team's brief and plan. The team chose the challenge, the product direction (a trend tool that
 checks significance, date sensitivity and detectability) and the technology stack. The SI tool
-selected the specific regions and variables, wrote the implementation, and drafted this
-documentation. All statistics are computed by the code from NASA data and are verified by the test
+selected the specific regions and the five MERRA-2 variables, wrote the implementation, and drafted
+this documentation. Vegetation greenness (MODIS NDVI) was chosen by the team and its data prepared
+by a team member; the SI tool wrote the loader and its tests. All statistics are computed by the code from NASA data and are verified by the test
 suite against independent libraries; none are SI-generated numbers. No SI-generated images, audio or
 video are included. No NASA logos or branding are used.
 

@@ -49,6 +49,57 @@ def lag1_autocorrelation(x: np.ndarray) -> float:
     return float(np.dot(x[:-1], x[1:]) / denom)
 
 
+def lag1_autocorrelation_at(t: np.ndarray, x: np.ndarray) -> float:
+    """Lag-1 autocorrelation of a series observed at times ``t`` that may have gaps.
+
+    For an evenly spaced series this is exactly ``lag1_autocorrelation``. When
+    months are missing, only pairs of truly consecutive time steps are used, so
+    a jump across a gap is not mistaken for a one-step lag. The estimate is
+    scaled so that it reduces to the standard estimator when nothing is missing.
+    """
+    t = np.asarray(t, dtype=float)
+    x = np.asarray(x, dtype=float)
+    n = len(x)
+    if n < 3:
+        return 0.0
+    steps = np.diff(t)
+    adjacent = steps < 1.5 * steps.min()
+    if adjacent.all():
+        return lag1_autocorrelation(x)
+    x = x - x.mean()
+    denom = float(np.dot(x, x))
+    n_pairs = int(adjacent.sum())
+    if denom == 0 or n_pairs < 2:
+        return 0.0
+    num = float(np.dot(x[:-1][adjacent], x[1:][adjacent]))
+    r1 = (num / n_pairs) / (denom / n) * ((n - 1) / n)
+    return float(min(max(r1, -1.0), 1.0))
+
+
+def mask_sparse_calendar_months(months: np.ndarray, values: np.ndarray, min_fraction: float = 0.8) -> tuple[np.ndarray, list[int]]:
+    """Drop calendar months that are missing in too many years.
+
+    If, say, November has data in only a third of the years, its anomalies come
+    from a different mix of years than the other months, and a change in data
+    availability over time could masquerade as a trend. Such calendar months
+    are set to NaN in every year. Returns (values, excluded month numbers).
+    A complete series is returned unchanged.
+    """
+    values = np.asarray(values, dtype=float)
+    out = values.copy()
+    excluded: list[int] = []
+    for m in range(1, 13):
+        sel = months == m
+        if not sel.any():
+            continue
+        share = float(np.isfinite(values[sel]).mean())
+        if share < min_fraction:
+            out[sel] = np.nan
+            if share > 0:
+                excluded.append(m)
+    return out, excluded
+
+
 def ols_trend(t: np.ndarray, y: np.ndarray, alpha: float = ALPHA) -> dict:
     """Least-squares linear trend with an AR(1)-adjusted t-test.
 
@@ -56,7 +107,8 @@ def ols_trend(t: np.ndarray, y: np.ndarray, alpha: float = ALPHA) -> dict:
     anomalies are autocorrelated, so the sample size is replaced by an effective
     sample size n_eff = n (1 - r1) / (1 + r1), where r1 is the lag-1
     autocorrelation of the residuals (Santer et al. 2008). Negative r1 is treated
-    as zero so the adjustment can only widen the interval.
+    as zero so the adjustment can only widen the interval. Missing values (NaN)
+    are dropped; r1 is then estimated from truly consecutive months only.
     """
     t = np.asarray(t, dtype=float)
     y = np.asarray(y, dtype=float)
@@ -73,7 +125,7 @@ def ols_trend(t: np.ndarray, y: np.ndarray, alpha: float = ALPHA) -> dict:
     sse = float(np.sum(resid**2))
     se_naive = math.sqrt(sse / (n - 2) / sxx)
 
-    r1 = lag1_autocorrelation(resid)
+    r1 = lag1_autocorrelation_at(t, resid)
     r1_used = min(max(r1, 0.0), 0.99)
     n_eff = max(3.0, n * (1 - r1_used) / (1 + r1_used))
     se_adj = math.sqrt(sse / (n_eff - 2) / sxx)
@@ -139,7 +191,9 @@ def mann_kendall(
 ) -> dict:
     """Mann-Kendall trend test, classic and Hamed-Rao (1998) corrected.
 
-    The series must be evenly spaced; NaN values are dropped. The Hamed-Rao
+    NaN values are dropped and the remaining values are treated as consecutive.
+    For a series with gaps that is an approximation in the persistence
+    correction (the S statistic itself needs only the order). The Hamed-Rao
     correction inflates the variance of S using the significant autocorrelations
     of the ranks of the Sen-detrended series, up to ``max_lag`` steps
     (``None`` = all lags, as in the pymannkendall default). With

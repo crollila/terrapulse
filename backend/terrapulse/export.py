@@ -9,10 +9,9 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from . import analysis as an
-from .api import catalog
+from . import analysis as an, data
+from .api import catalog, provenance
 from .catalog import REGIONS, VARIABLES
-from .power import load_provenance
 
 OUT = Path(__file__).resolve().parents[2] / "frontend" / "public" / "data"
 
@@ -24,8 +23,15 @@ def _write(path: Path, payload: dict) -> None:
 
 def main() -> None:
     _write(OUT / "catalog.json", catalog())
-    _write(OUT / "provenance.json", load_provenance())
+    _write(OUT / "provenance.json", provenance())
     for variable in VARIABLES:
+        if not data.available(variable):
+            # Never export a variable without real data behind it; remove stale files.
+            (OUT / "overview" / f"{variable}.json").unlink(missing_ok=True)
+            for region in REGIONS:
+                (OUT / "analysis" / region / f"{variable}.json").unlink(missing_ok=True)
+            print("skipped", variable, "-", data.unavailable_reason(variable))
+            continue
         _write(OUT / "overview" / f"{variable}.json", an.overview(variable))
         for region in REGIONS:
             _write(OUT / "analysis" / region / f"{variable}.json", an.analysis(region, variable))

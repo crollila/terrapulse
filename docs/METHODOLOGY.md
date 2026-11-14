@@ -1,7 +1,8 @@
 # TerraPulse methodology
 
 Every number in the dashboard is computed by `backend/terrapulse/` from the NASA series in
-`backend/data/processed/`. This document states what is computed, why, and what it cannot tell you.
+`backend/data/processed/` (and, once delivered, `backend/data/ndvi/`). This document states what is
+computed, why, and what it cannot tell you.
 
 ## 1. Data
 
@@ -41,10 +42,43 @@ ocean cells they cover (notably `malay-peninsula` and `north-slope`).
 the box, weighted by the cosine of each cell's latitude so that cells count in proportion to their
 area. Cells with a missing value are left out of that month's mean.
 
+### 1.1 Vegetation greenness (NDVI): supported, shown once the data is delivered
+
+The pipeline also accepts a sixth variable from a different NASA source. It appears in the app only
+when real regional files are present in `backend/data/ndvi/` and pass validation
+(`backend/terrapulse/ndvi.py`); until then it is not listed, and no placeholder values exist.
+
+| Item | Value |
+|---|---|
+| Dataset | MODIS/Terra Vegetation Indices Monthly L3 Global 0.05Deg CMG, Version 6.1 (MOD13C2), NASA LP DAAC, doi:10.5067/MODIS/MOD13C2.061 |
+| Layer | `CMG 0.05 Deg Monthly NDVI`: 16-bit integer, NDVI = stored value ÷ 10000, valid −2000 to 10000, fill −3000 |
+| Period | February 2000 onward (321 months to October 2026) |
+| Delivery | One CSV per region with the monthly mean, the number of valid pixels and the number of land pixels, plus a provenance record. Format and checks: [NDVI_HANDOFF.md](NDVI_HANDOFF.md) |
+
+Because the record does not start in January, each variable carries its own period. For NDVI the
+date windows span 2000–2026; the first and last calendar years are partial, annual means are shown
+only for complete years, and record length is counted in months (26.75 years, not 27).
+
+### 1.2 Missing months
+
+The MERRA-2 series have none. A satellite series can: polar night, snow and cloud remove pixels.
+
+- **Too few pixels.** A month's regional mean is used only if at least 50% of the region's land
+  pixels are valid. Otherwise the mean would describe an unrepresentative part of the region.
+- **Calendar months missing in many years.** A calendar month with data in fewer than 80% of the
+  years is left out for that region in every year. If, for example, October were observed only in
+  recent years, its anomalies would come from a different mix of years than the other months, and
+  the change in coverage could look like a trend.
+- **Statistics with gaps.** Missing months are never filled in. The least-squares slope uses the
+  months that exist at their true dates. The lag-1 autocorrelation is estimated only from pairs of
+  truly consecutive months. The Mann–Kendall statistic depends only on order, so gaps do not affect
+  it; its Hamed–Rao correction treats the remaining months as consecutive, which is an
+  approximation.
+
 ## 2. Removing the seasonal cycle
 
-For each calendar month *m*, the climatology is the mean of all values for that month over
-1981–2025. The anomaly is the value minus its month's climatology. All trend statistics are
+For each calendar month *m*, the climatology is the mean of all values for that month over the
+variable's full record (1981–2025 for the MERRA-2 variables). The anomaly is the value minus its month's climatology. All trend statistics are
 computed on anomalies. The climatology is fixed for the whole record so that results for different
 date windows are comparable.
 
@@ -88,7 +122,7 @@ A full-record trend is called significant only if **both** corrected tests give 
 ## 5. Trying to break the result
 
 **Date-window sensitivity.** The adjusted least-squares trend is recomputed for every start year
-and end year at least 15 years apart: 496 windows. The dashboard shows the slope of each as a heat
+and end year at least 15 years apart: 496 windows for a 1981–2025 record (91 for NDVI's 2000–2026). The dashboard shows the slope of each as a heat
 map and marks windows that are not significant. Summary shares are reported: windows whose slope
 has the same sign as the full record, and windows that are significant in the same or the opposite
 direction. Windows overlap heavily and are not independent tests; the shares are descriptive.
@@ -145,7 +179,7 @@ clarity. They are constants in `analysis.py` and `stats.py` and can be changed a
 
 ## 8. Verification
 
-`backend/tests` (26 tests, run with `uv run pytest`):
+`backend/tests` (62 tests, run with `uv run pytest`; one is skipped until NDVI files are delivered):
 
 | Check | Reference |
 |---|---|
@@ -159,10 +193,17 @@ clarity. They are constants in `analysis.py` and `stats.py` and can be changed a
 | Area weighting and fill-value handling | hand calculation |
 | Committed NASA series complete and within physical limits | — |
 | API payload consistency and error codes | FastAPI test client |
+| The static JSON served by the public site equals what the code computes from the committed data | all 40 series |
+| NDVI files: 11 kinds of malformed file rejected (raw integers, fill averaged in, skipped months, ...) | synthetic fixtures in temporary folders |
+| NDVI regional reduction: cos-latitude weighting, fill removal, south-to-north and 0–360° grids, yearly NetCDF stacks | hand calculation |
+| NDVI as a sixth variable end to end; partial years; seasonal gaps; MERRA-2 results unchanged alongside it | synthetic fixtures |
+| Gap-aware lag-1 autocorrelation equals the standard estimator on complete data and beats it on gappy AR(1) noise | simulation |
+| NDVI is absent from the API and the static export unless real, validated files exist | — |
 
 ## References
 
 - Benjamini, Y., & Hochberg, Y. (1995). Controlling the false discovery rate. *J. R. Stat. Soc. B*, 57, 289–300.
+- Didan, K. (2021). *MODIS/Terra Vegetation Indices Monthly L3 Global 0.05Deg CMG V061*. NASA LP DAAC. https://doi.org/10.5067/MODIS/MOD13C2.061
 - Gelaro, R., et al. (2017). MERRA-2. *J. Climate*, 30, 5419–5454.
 - Hamed, K. H., & Rao, A. R. (1998). A modified Mann-Kendall trend test for autocorrelated data. *J. Hydrol.*, 204, 182–196.
 - Kendall, M. G. (1975). *Rank Correlation Methods*. Griffin.

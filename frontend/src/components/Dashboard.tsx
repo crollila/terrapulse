@@ -41,6 +41,8 @@ const CASES = [
   },
 ];
 
+const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
 const VERDICT_STYLE: Record<VerdictCode, { label: string; cls: string }> = {
   robust: { label: "Holds up", cls: "border-emerald-400/50 bg-emerald-400/10 text-emerald-200" },
   date_sensitive: { label: "Depends on dates", cls: "border-amber-400/50 bg-amber-400/10 text-amber-200" },
@@ -103,7 +105,9 @@ export default function Dashboard() {
   }, [region, variable]);
 
   const ready = analysis && analysis.region.id === region && analysis.variable.id === variable ? analysis : null;
-  const period = useMemo<[number, number]>(() => catalog?.period ?? [1981, 2025], [catalog]);
+  const variableInfo = catalog?.variables.find((v) => v.id === variable);
+  // Each variable has its own record length (NDVI starts in 2000, the MERRA-2 variables in 1981).
+  const period = useMemo<[number, number]>(() => variableInfo?.period ?? catalog?.period ?? [1981, 2025], [variableInfo, catalog]);
   const [start, end] = range ?? period;
   const minYears = catalog?.min_window_years ?? 15;
   const isFull = start === period[0] && end === period[1];
@@ -295,7 +299,9 @@ export default function Dashboard() {
   const years = useMemo(() => Array.from({ length: period[1] - period[0] + 1 }, (_, i) => period[0] + i), [period]);
   const t = ready?.trend;
   const det = t?.detectability;
-  const variableInfo = catalog?.variables.find((v) => v.id === variable);
+  const source = ready?.provenance.source;
+  const excludedMonths = ready?.quality.calendar_months_excluded ?? [];
+  const credits = catalog?.sources ? Object.values(catalog.sources).map((s) => s.credit).join("; ") : "NASA GMAO MERRA-2 via NASA POWER";
 
   return (
     <div className="mx-auto w-full max-w-[1400px] px-4 pb-16 sm:px-6">
@@ -423,7 +429,7 @@ export default function Dashboard() {
                     />
                   </div>
                   <p className="mt-1 text-[11px] text-slate-400">
-                    Record: {det.record_years} years. Plausible range {Math.round(det.low ?? 0)}–{Math.round(det.high ?? 0)} years (Weatherhead et al. 1998).
+                    Record: {Number.isInteger(det.record_years) ? det.record_years : det.record_years.toFixed(1)} years. Plausible range {Math.round(det.low ?? 0)}–{Math.round(det.high ?? 0)} years (Weatherhead et al. 1998).
                   </p>
                 </div>
               )}
@@ -559,15 +565,19 @@ export default function Dashboard() {
             <div id="data">
               <dl className="mt-3 grid grid-cols-2 gap-x-4 gap-y-2 text-xs">
                 {[
-                  ["Dataset", "NASA MERRA-2 reanalysis"],
-                  ["Accessed through", `NASA POWER API ${ready.provenance.api_version}`],
+                  ["Dataset", source?.short_name ?? "NASA MERRA-2 reanalysis"],
+                  ["Accessed through", `${source?.access_short ?? "NASA POWER API"} ${ready.provenance.api_version ?? ""}`.trim()],
                   ["Grid cells averaged", `${ready.quality.grid_cells} (area-weighted)`],
                   ["Native grid", ready.provenance.source.native_grid],
+                  ["Record", `${ready.first_month} to ${ready.last_month}`],
                   ["Months with data", `${ready.quality.months_total - ready.quality.months_missing} of ${ready.quality.months_total} (${pct(ready.quality.coverage)})`],
+                  ...(excludedMonths.length
+                    ? [["Calendar months left out", `${excludedMonths.map((m) => MONTHS[m - 1]).join(", ")} (data in too few years)`]]
+                    : []),
                   ["Units reported by NASA", ready.quality.units_reported_by_nasa],
                   ["Month-to-month persistence", `r₁ = ${sig(ready.quality.lag1_autocorrelation, 2)}`],
-                  ["Effective sample size", `${Math.round(ready.quality.n_effective)} of ${ready.quality.months_total} months`],
-                  ["Retrieved (UTC)", ready.provenance.retrieved_utc.replace("T", " ").slice(0, 16)],
+                  ["Effective sample size", `${Math.round(ready.quality.n_effective)} of ${ready.quality.months_used} months`],
+                  ["Retrieved (UTC)", ready.provenance.retrieved_utc ? ready.provenance.retrieved_utc.replace("T", " ").slice(0, 16) : "not recorded"],
                   ["Served from", DATA_MODE],
                 ].map(([k, v]) => (
                   <div key={k}>
@@ -576,13 +586,20 @@ export default function Dashboard() {
                   </div>
                 ))}
               </dl>
-              <a className="mt-3 inline-block break-all text-xs text-sky-300 hover:underline" href={ready.provenance.request_url}>
-                Exact NASA POWER request for this series ↗
-              </a>
+              {ready.provenance.request_url ? (
+                <a className="mt-3 inline-block break-all text-xs text-sky-300 hover:underline" href={ready.provenance.request_url}>
+                  Exact NASA POWER request for this series ↗
+                </a>
+              ) : (
+                source?.access_url && (
+                  <a className="mt-3 inline-block break-all text-xs text-sky-300 hover:underline" href={source.access_url}>
+                    NASA record for this dataset ↗
+                  </a>
+                )
+              )}
               <p className="mt-3 rounded-md border border-amber-400/30 bg-amber-400/5 p-2 text-[11px] leading-relaxed text-amber-100/90">
-                MERRA-2 is a reanalysis: a model constrained by satellite and ground observations, not a direct measurement. Changes in the observing
-                system over time (new satellites, fewer rain gauges) can create or hide trends, especially for precipitation and soil wetness. Check
-                important results against an independent dataset.
+                {source?.caveat ??
+                  "MERRA-2 is a reanalysis: a model constrained by satellite and ground observations, not a direct measurement. Changes in the observing system over time (new satellites, fewer rain gauges) can create or hide trends, especially for precipitation and soil wetness. Check important results against an independent dataset."}
               </p>
             </div>
           )}
@@ -593,7 +610,7 @@ export default function Dashboard() {
         <div id="method" className="mt-3 grid gap-4 text-xs leading-relaxed text-slate-300 md:grid-cols-2 lg:grid-cols-4">
           <div>
             <h3 className="font-medium text-white">Remove the seasons</h3>
-            <p className="mt-1">Each month is compared with the 1981–2025 average for that calendar month, so January is only compared with other Januaries.</p>
+            <p className="mt-1">Each month is compared with the {period[0]}–{period[1]} average for that calendar month, so January is only compared with other Januaries.</p>
           </div>
           <div>
             <h3 className="font-medium text-white">Measure the slope two ways</h3>
@@ -601,11 +618,11 @@ export default function Dashboard() {
           </div>
           <div>
             <h3 className="font-medium text-white">Test it honestly</h3>
-            <p className="mt-1">A warm month tends to follow a warm month, so 540 months hold less independent information than they seem to. Both the t-test and the Mann–Kendall test are corrected for this persistence.</p>
+            <p className="mt-1">A warm month tends to follow a warm month, so {ready?.quality.months_used ?? 540} months hold less independent information than they seem to. Both the t-test and the Mann–Kendall test are corrected for this persistence.</p>
           </div>
           <div>
             <h3 className="font-medium text-white">Try to break it</h3>
-            <p className="mt-1">The trend is recomputed for all 496 start/end-year windows, and across regions with a false-discovery correction. Where nothing is detected, we estimate how long a record would be needed.</p>
+            <p className="mt-1">The trend is recomputed for all {ready?.windows_summary.n_windows ?? 496} start/end-year windows, and across regions with a false-discovery correction. Where nothing is detected, we estimate how long a record would be needed.</p>
           </div>
         </div>
         <p className="mt-4 text-xs text-slate-400">
@@ -615,7 +632,7 @@ export default function Dashboard() {
       </Card>
 
       <footer className="mt-8 text-center text-[11px] leading-relaxed text-slate-500">
-        TerraPulse · Team Orbital Alpha · NASA Space Apps Challenge 2026 · MIT License. Data: NASA GMAO MERRA-2 via NASA POWER; imagery: NASA GIBS.
+        TerraPulse · Team Orbital Alpha · NASA Space Apps Challenge 2026 · MIT License. Data: {credits}; imagery: NASA GIBS.
         Built with SI coding assistance (Anthropic Claude); see the repository for the full disclosure. Not an official NASA product.
       </footer>
     </div>

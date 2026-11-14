@@ -4,15 +4,38 @@
 // See docs/API.md.
 
 export type Region = { id: string; name: string; country: string; bbox: [number, number, number, number]; setting: string };
-export type Variable = { id: string; name: string; long_name: string; units: string; definition: string; decimals: number };
-export type Source = { dataset: string; producer: string; access: string; access_url: string; native_grid: string; kind: string };
+export type Variable = {
+  id: string;
+  name: string;
+  long_name: string;
+  units: string;
+  definition: string;
+  decimals: number;
+  source: string; // key into Catalog.sources
+  period: [number, number]; // first and last calendar year of this variable's record
+};
+export type Source = {
+  id: string;
+  short_name: string;
+  dataset: string;
+  producer: string;
+  access: string;
+  access_short: string;
+  access_url: string;
+  native_grid: string;
+  kind: string;
+  caveat: string;
+  credit: string;
+  doi?: string;
+};
 
 export type Catalog = {
   period: [number, number];
   min_window_years: number;
   regions: Region[];
-  variables: Variable[];
+  variables: Variable[]; // only variables that have data
   source: Source;
+  sources: Record<string, Source>;
 };
 
 export type WindowTrend = {
@@ -53,6 +76,8 @@ export type Analysis = {
   region: Region;
   variable: Variable;
   period: [number, number];
+  first_month: string; // "YYYY-MM"
+  last_month: string;
   series: {
     t: number[];
     year: number[];
@@ -84,11 +109,13 @@ export type Analysis = {
     lag1_autocorrelation: number;
     n_effective: number;
     units_reported_by_nasa: string;
+    months_used: number;
+    calendar_months_excluded: number[];
   };
   provenance: {
-    request_url: string;
-    retrieved_utc: string;
-    api_version: string;
+    request_url: string | null;
+    retrieved_utc: string | null;
+    api_version: string | null;
     sources: string[];
     grid: { n_cells: number; lat_min: number; lat_max: number; lon_min: number; lon_max: number };
     source: Source;
