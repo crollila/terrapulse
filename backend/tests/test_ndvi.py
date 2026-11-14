@@ -414,6 +414,23 @@ def test_existing_variables_are_unchanged_when_ndvi_is_present(synthetic_ndvi):
     assert client.get("/api/trend/upper-colorado/T2M").json()["start"] == 1981
 
 
+def assert_same(served, computed, path="", rel=1e-9, abs_tol=1e-12):
+    """Deep comparison that tolerates last-digit floating-point differences between machines
+    (the snapshot is written on one operating system and re-checked by CI on another)."""
+    if isinstance(served, dict):
+        assert isinstance(computed, dict) and served.keys() == computed.keys(), path
+        for key in served:
+            assert_same(served[key], computed[key], f"{path}/{key}", rel, abs_tol)
+    elif isinstance(served, list):
+        assert isinstance(computed, list) and len(served) == len(computed), path
+        for i, (a, b) in enumerate(zip(served, computed)):
+            assert_same(a, b, f"{path}[{i}]", rel, abs_tol)
+    elif isinstance(served, float) or isinstance(computed, float):
+        assert served == pytest.approx(computed, rel=rel, abs=abs_tol), path
+    else:
+        assert served == computed, path
+
+
 @pytest.mark.parametrize("variable", MERRA2_VARIABLES)
 def test_deployed_snapshot_matches_the_pipeline(variable):
     """The static JSON the public site serves equals what the code computes from the committed data."""
@@ -421,11 +438,16 @@ def test_deployed_snapshot_matches_the_pipeline(variable):
     for region_id in REGIONS:
         served = json.loads((STATIC / "analysis" / region_id / f"{variable}.json").read_text(encoding="utf-8"))
         computed = an.analysis(region_id, variable)
-        assert served["trend"] == computed["trend"]
-        assert served["windows_summary"] == computed["windows_summary"]
-        assert served["verdict"] == computed["verdict"]
-        assert served["series"]["value"] == computed["series"]["value"]
-    assert json.loads((STATIC / "overview" / f"{variable}.json").read_text(encoding="utf-8")) == an.overview(variable)
+        for block in ("trend", "windows", "windows_summary", "verdict", "quality", "series", "period"):
+            assert_same(served[block], computed[block], f"{region_id}/{variable}/{block}")
+    assert_same(json.loads((STATIC / "overview" / f"{variable}.json").read_text(encoding="utf-8")), an.overview(variable), f"overview/{variable}")
+
+
+def test_assert_same_detects_real_differences():
+    assert_same({"a": [1.0, None, "x"]}, {"a": [1.0 + 1e-13, None, "x"]})
+    for wrong in ({"a": [1.001, None, "x"]}, {"a": [1.0, 0, "x"]}, {"a": [1.0, None, "y"]}, {"b": [1.0, None, "x"]}, {"a": [1.0, None]}):
+        with pytest.raises(AssertionError):
+            assert_same({"a": [1.0, None, "x"]}, wrong)
 
 
 def test_pinned_headline_numbers_for_the_default_view():
