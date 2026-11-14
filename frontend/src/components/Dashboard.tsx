@@ -569,14 +569,15 @@ export default function Dashboard() {
                   ["Accessed through", `${source?.access_short ?? "NASA POWER API"} ${ready.provenance.api_version ?? ""}`.trim()],
                   ["Grid cells averaged", `${ready.quality.grid_cells} (area-weighted)`],
                   ["Native grid", ready.provenance.source.native_grid],
-                  ["Record", `${ready.first_month} to ${ready.last_month}`],
+                  // Fields added later are optional here: a browser may briefly hold an older cached JSON after a deploy.
+                  ...(ready.first_month && ready.last_month ? [["Record", `${ready.first_month} to ${ready.last_month}`]] : []),
                   ["Months with data", `${ready.quality.months_total - ready.quality.months_missing} of ${ready.quality.months_total} (${pct(ready.quality.coverage)})`],
                   ...(excludedMonths.length
                     ? [["Calendar months left out", `${excludedMonths.map((m) => MONTHS[m - 1]).join(", ")} (data in too few years)`]]
                     : []),
                   ["Units reported by NASA", ready.quality.units_reported_by_nasa],
                   ["Month-to-month persistence", `r₁ = ${sig(ready.quality.lag1_autocorrelation, 2)}`],
-                  ["Effective sample size", `${Math.round(ready.quality.n_effective)} of ${ready.quality.months_used} months`],
+                  ["Effective sample size", `${Math.round(ready.quality.n_effective)} of ${ready.quality.months_used ?? ready.quality.months_total} months`],
                   ["Retrieved (UTC)", ready.provenance.retrieved_utc ? ready.provenance.retrieved_utc.replace("T", " ").slice(0, 16) : "not recorded"],
                   ["Served from", DATA_MODE],
                 ].map(([k, v]) => (
