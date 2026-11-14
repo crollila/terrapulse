@@ -444,7 +444,7 @@ def test_deployed_snapshot_matches_the_pipeline(variable):
     for region_id in REGIONS:
         served = json.loads((STATIC / "analysis" / region_id / f"{variable}.json").read_text(encoding="utf-8"))
         computed = an.analysis(region_id, variable)
-        for block in ("trend", "windows", "windows_summary", "verdict", "quality", "series", "period"):
+        for block in ("region", "trend", "windows", "windows_summary", "verdict", "crosscheck", "quality", "series", "period"):
             assert_same(served[block], computed[block], f"{region_id}/{variable}/{block}")
     assert_same(json.loads((STATIC / "overview" / f"{variable}.json").read_text(encoding="utf-8")), an.overview(variable), f"overview/{variable}")
 
@@ -457,7 +457,7 @@ def test_assert_same_detects_real_differences():
 
 
 def test_pinned_headline_numbers_for_the_default_view():
-    """Upper Colorado air temperature, 1981-2025, as published in the README table."""
+    """Colorado air temperature, 1981-2025, as published in the README table."""
     an.clear_caches()
     tr = an.analysis("upper-colorado", "T2M")["trend"]["ols"]
     assert tr["slope_per_decade"] == pytest.approx(0.326, abs=5e-4)

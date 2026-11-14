@@ -158,7 +158,7 @@ The companion layer `CMG 0.05 Deg Monthly pixel reliability` grades every pixel:
 
 Code 4 matters most. The monthly CMG product fills cloudy or missing cells with the long-term
 average for that month, so the map has no holes. A filled cell carries no information about that
-particular month and pulls trends toward zero. Cloudy regions (Rondonia, the Malay Peninsula) are
+particular month and pulls trends toward zero. Cloudy regions (the southwestern Amazon, the Malay Peninsula) are
 the most affected.
 
 ## 5. Questions to answer in the pull request
@@ -191,7 +191,7 @@ the most affected.
 - A month is used only if at least half of the region's land pixels are valid; otherwise it is
   treated as missing (the mean would describe an unrepresentative part of the region).
 - A calendar month that has data in fewer than 80% of the years is left out for that region
-  (for example polar-night months on the Alaska North Slope).
+  (for example polar-night months in northern Alaska).
 - The record runs February 2000 to October 2026, so trend windows for NDVI span 2000–2026 and the
   first and last years are partial. Annual means are shown only for complete years.
 - Everything else (seasonal-cycle removal, slope, both significance tests, date-window check) is

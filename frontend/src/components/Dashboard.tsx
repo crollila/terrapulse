@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import dynamic from "next/dynamic";
 import Plot from "./Plot";
-import { DATA_MODE, getAnalysis, getCatalog, getOverview, type Analysis, type Catalog, type Overview, type VerdictCode } from "@/lib/api";
+import { DATA_MODE, getAnalysis, getCatalog, getOverview, type Analysis, type Catalog, type CrosscheckCode, type Overview, type VerdictCode } from "@/lib/api";
 import { COLORS, pEq, pct, pval, sig, signed, trendColor } from "@/lib/format";
 
 const RegionMap = dynamic(() => import("./RegionMap"), { ssr: false });
@@ -14,15 +14,15 @@ const CASES = [
   {
     id: "arctic",
     title: "How fast is the Arctic warming?",
-    hint: "Compare the North Slope's temperature trend with the other regions.",
+    hint: "Northern Alaska warms fastest of the eight regions, and a second NASA record agrees.",
     region: "north-slope",
     variable: "T2M",
   },
   {
-    id: "opposite",
-    title: "Same variable, opposite directions",
-    hint: "Precipitation falls in one tropical region and rises in another.",
-    region: "rondonia",
+    id: "second-opinion",
+    title: "A trend only one dataset sees",
+    hint: "Rainfall near the Malay Peninsula rises steeply in MERRA-2. An independent record does not show it.",
+    region: "malay-peninsula",
     variable: "PRECTOTCORR",
   },
   {
@@ -35,8 +35,8 @@ const CASES = [
   {
     id: "notyet",
     title: "Not significant — yet",
-    hint: "See how many years of data it would take to be sure.",
-    region: "upper-colorado",
+    hint: "Murray–Darling rainfall: see how many years of data it would take to be sure.",
+    region: "murray-darling",
     variable: "PRECTOTCORR",
   },
 ];
@@ -44,11 +44,26 @@ const CASES = [
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
 const VERDICT_STYLE: Record<VerdictCode, { label: string; cls: string }> = {
-  robust: { label: "Holds up", cls: "border-emerald-400/50 bg-emerald-400/10 text-emerald-200" },
+  robust: { label: "Holds across dates", cls: "border-emerald-400/50 bg-emerald-400/10 text-emerald-200" },
   date_sensitive: { label: "Depends on dates", cls: "border-amber-400/50 bg-amber-400/10 text-amber-200" },
   mixed: { label: "Tests disagree", cls: "border-violet-400/50 bg-violet-400/10 text-violet-200" },
   not_detected: { label: "Not detected yet", cls: "border-slate-400/50 bg-slate-400/10 text-slate-200" },
 };
+
+// How the second-opinion box is tinted: green when an independent record agrees, amber when it
+// does not confirm or disagrees on size, red when it contradicts, grey when nothing was checked.
+const CROSS_STYLE: Record<CrosscheckCode, { box: string; text: string }> = {
+  agrees: { box: "border-emerald-400/40 bg-emerald-400/5", text: "text-emerald-200" },
+  agrees_none: { box: "border-emerald-400/40 bg-emerald-400/5", text: "text-emerald-200" },
+  direction_only: { box: "border-amber-400/50 bg-amber-400/5", text: "text-amber-200" },
+  missed: { box: "border-amber-400/50 bg-amber-400/5", text: "text-amber-200" },
+  not_confirmed: { box: "border-amber-400/60 bg-amber-400/10", text: "text-amber-200" },
+  conflict: { box: "border-red-400/60 bg-red-500/10", text: "text-red-200" },
+  none: { box: "border-slate-600/70 bg-slate-800/40", text: "text-slate-200" },
+};
+
+const lat = (v: number) => `${Math.abs(v)}°${v < 0 ? "S" : "N"}`;
+const lon = (v: number) => `${Math.abs(v)}°${v < 0 ? "W" : "E"}`;
 
 function Card({ title, sub, children, className = "" }: { title?: string; sub?: string; children: React.ReactNode; className?: string }) {
   return (
@@ -63,9 +78,9 @@ function Card({ title, sub, children, className = "" }: { title?: string; sub?: 
 function Stat({ label, value, note }: { label: string; value: string; note?: string }) {
   return (
     <div className="rounded-lg bg-slate-800/60 px-3 py-2">
-      <div className="text-[11px] uppercase tracking-wider text-slate-400">{label}</div>
+      <div className="tp-fine uppercase tracking-wider text-slate-400">{label}</div>
       <div className="mt-0.5 font-mono text-base text-slate-50">{value}</div>
-      {note && <div className="text-[11px] text-slate-400">{note}</div>}
+      {note && <div className="tp-fine text-slate-400">{note}</div>}
     </div>
   );
 }
@@ -130,7 +145,7 @@ export default function Dashboard() {
         hovertemplate: `%{x:.2f}: %{y:.3f} ${units}<extra></extra>`,
       },
     ];
-    if (view === "raw") {
+    if (view === "raw" && s.annual_year.length > 0) {
       data.push({
         x: s.annual_year.map((v) => v + 0.5),
         y: s.annual_mean,
@@ -141,7 +156,7 @@ export default function Dashboard() {
         marker: { size: 4 },
         hovertemplate: `%{x:.0f}: %{y:.3f} ${units}<extra></extra>`,
       });
-    } else {
+    } else if (view !== "raw") {
       const x0 = start;
       const x1 = end + 1;
       const b = win.slope_per_decade / 10;
@@ -300,6 +315,9 @@ export default function Dashboard() {
   const t = ready?.trend;
   const det = t?.detectability;
   const source = ready?.provenance.source;
+  const cross = ready?.crosscheck;
+  const regionInfo = catalog?.regions.find((r) => r.id === region);
+  const landOnly = variable === "NDVI" || variable === "GWETROOT"; // these have values over land only
   const excludedMonths = ready?.quality.calendar_months_excluded ?? [];
   const credits = catalog?.sources ? Object.values(catalog.sources).map((s) => s.credit).join("; ") : "NASA GMAO MERRA-2 via NASA POWER";
 
@@ -314,7 +332,7 @@ export default function Dashboard() {
             different choice of dates?
           </p>
         </div>
-        <nav className="flex gap-4 text-sm text-slate-300">
+        <nav className="tp-nav flex gap-4 text-sm text-slate-300">
           <a className="hover:text-white" href="#method">Method</a>
           <a className="hover:text-white" href="#data">Data</a>
           <a className="hover:text-white" href={REPO}>Code</a>
@@ -376,6 +394,9 @@ export default function Dashboard() {
             <span><i className="mr-1 inline-block h-2.5 w-2.5 rounded-sm" style={{ background: COLORS.down }} />significant decrease</span>
             <span><i className="mr-1 inline-block h-2.5 w-2.5 rounded-sm" style={{ background: COLORS.none }} />not significant</span>
           </div>
+          <p className="mt-1 text-xs leading-relaxed text-slate-400">
+            Colours show this dataset&rsquo;s own result. Open a region to see whether a second dataset agrees.
+          </p>
           <label className="mt-3 block text-xs text-slate-400">
             Region
             <select
@@ -390,6 +411,12 @@ export default function Dashboard() {
               ))}
             </select>
           </label>
+          {regionInfo && (
+            <p className="mt-2 text-xs leading-relaxed text-slate-400">
+              <span className="text-slate-200">{regionInfo.name}.</span> {regionInfo.setting} The region is the rectangle {lon(regionInfo.bbox[0])}–
+              {lon(regionInfo.bbox[2])}, {lat(regionInfo.bbox[1])}–{lat(regionInfo.bbox[3])} drawn on the map, not an exact basin or border.
+            </p>
+          )}
         </Card>
 
         <Card className="lg:col-span-2" title="2 · The verdict">
@@ -405,6 +432,23 @@ export default function Dashboard() {
               </span>
               <h3 className="mt-2 text-lg font-semibold leading-snug text-white">{ready.verdict.title}</h3>
               <p className="mt-2 text-sm leading-relaxed text-slate-300">{ready.verdict.text}</p>
+              {cross && (
+                <div className={`mt-3 rounded-md border p-2.5 ${CROSS_STYLE[cross.code].box}`}>
+                  <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
+                    <span className="tp-fine uppercase tracking-wider text-slate-400">Second opinion</span>
+                    <span className={`text-xs font-semibold ${CROSS_STYLE[cross.code].text}`}>{cross.label}</span>
+                  </div>
+                  <p className="mt-1 text-xs leading-relaxed text-slate-300">{cross.text}</p>
+                  {cross.dataset && (
+                    <p className="mt-1 tp-fine leading-relaxed text-slate-400">
+                      {cross.dataset.kind} {cross.dataset.caveat}{" "}
+                      <a className="text-sky-300 hover:underline" href={cross.dataset.url}>
+                        About {cross.dataset.name} ↗
+                      </a>
+                    </p>
+                  )}
+                </div>
+              )}
               <div className="mt-4 grid grid-cols-2 gap-2">
                 <Stat label="Rate of change" value={`${signed(t.ols.slope_per_decade)}`} note={`${units} per decade`} />
                 <Stat label="95% confidence range" value={`${signed(t.ols.ci_low)} to ${signed(t.ols.ci_high)}`} note="allows for persistence" />
@@ -428,12 +472,12 @@ export default function Dashboard() {
                       }}
                     />
                   </div>
-                  <p className="mt-1 text-[11px] text-slate-400">
+                  <p className="mt-1 tp-fine text-slate-400">
                     Record: {Number.isInteger(det.record_years) ? det.record_years : det.record_years.toFixed(1)} years. Plausible range {Math.round(det.low ?? 0)}–{Math.round(det.high ?? 0)} years (Weatherhead et al. 1998).
                   </p>
                 </div>
               )}
-              <p className="mt-4 border-t border-slate-700/60 pt-3 text-[11px] leading-relaxed text-slate-400">
+              <p className="mt-4 border-t border-slate-700/60 pt-3 tp-fine leading-relaxed text-slate-400">
                 A significant trend describes what changed in this dataset. It does not say why it changed.
               </p>
             </>
@@ -569,6 +613,16 @@ export default function Dashboard() {
                   ["Accessed through", `${source?.access_short ?? "NASA POWER API"} ${ready.provenance.api_version ?? ""}`.trim()],
                   ["Grid cells averaged", `${ready.quality.grid_cells} (area-weighted)`],
                   ["Native grid", ready.provenance.source.native_grid],
+                  ...(ready.region.land_share != null
+                    ? [
+                        [
+                          "Land in the region box",
+                          ready.region.land_share > 0.995
+                            ? "all land"
+                            : `${pct(ready.region.land_share)}; ${landOnly ? "only land is averaged" : "sea is included in this average"}`,
+                        ],
+                      ]
+                    : []),
                   // Fields added later are optional here: a browser may briefly hold an older cached JSON after a deploy.
                   ...(ready.first_month && ready.last_month ? [["Record", `${ready.first_month} to ${ready.last_month}`]] : []),
                   ["Months with data", `${ready.quality.months_total - ready.quality.months_missing} of ${ready.quality.months_total} (${pct(ready.quality.coverage)})`],
@@ -598,7 +652,7 @@ export default function Dashboard() {
                   </a>
                 )
               )}
-              <p className="mt-3 rounded-md border border-amber-400/30 bg-amber-400/5 p-2 text-[11px] leading-relaxed text-amber-100/90">
+              <p className="mt-3 rounded-md border border-amber-400/30 bg-amber-400/5 p-2 tp-fine leading-relaxed text-amber-100/90">
                 {source?.caveat ??
                   "MERRA-2 is a reanalysis: a model constrained by satellite and ground observations, not a direct measurement. Changes in the observing system over time (new satellites, fewer rain gauges) can create or hide trends, especially for precipitation and soil wetness. Check important results against an independent dataset."}
               </p>
@@ -623,7 +677,7 @@ export default function Dashboard() {
           </div>
           <div>
             <h3 className="font-medium text-white">Try to break it</h3>
-            <p className="mt-1">The trend is recomputed for all {ready?.windows_summary.n_windows ?? 496} start/end-year windows, and across regions with a false-discovery correction. Where nothing is detected, we estimate how long a record would be needed.</p>
+            <p className="mt-1">The trend is recomputed for all {ready?.windows_summary.n_windows ?? 496} start/end-year windows, and across regions with a false-discovery correction. Where nothing is detected, we estimate how long a record would be needed. For rainfall and temperature the same trend is also computed from an independent record, and the verdict says whether the two agree.</p>
           </div>
         </div>
         <p className="mt-4 text-xs text-slate-400">
@@ -632,8 +686,8 @@ export default function Dashboard() {
         </p>
       </Card>
 
-      <footer className="mt-8 text-center text-[11px] leading-relaxed text-slate-500">
-        TerraPulse · Team Orbital Alpha · NASA Space Apps Challenge 2026 · MIT License. Data: {credits}; imagery: NASA GIBS.
+      <footer className="mt-8 text-center tp-fine leading-relaxed text-slate-500">
+        TerraPulse · Team Orbital Alpha · NASA Space Apps Challenge 2026 · MIT License. Data: {credits}; second opinions: GPCP v2.3 and NASA GISTEMP v4 via NOAA PSL; imagery: NASA GIBS.
         Built with SI coding assistance (Anthropic Claude); see the repository for the full disclosure. Not an official NASA product.
       </footer>
     </div>

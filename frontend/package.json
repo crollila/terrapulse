@@ -1,6 +1,7 @@
 {
   "name": "terrapulse-frontend",
   "version": "0.1.0",
+  "description": "TerraPulse dashboard (NASA Space Apps 2026). Code generated with an SI coding assistant (Anthropic Claude); see the repository README.",
   "private": true,
   "scripts": {
     "dev": "next dev",

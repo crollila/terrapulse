@@ -1,0 +1,182 @@
+{
+  "datasets": {
+    "gpcp": {
+      "name": "Global Precipitation Climatology Project (GPCP) Monthly Analysis, Version 2.3",
+      "opendap_url": "https://psl.noaa.gov/thredds/dodsC/Datasets/gpcp/precip.mon.mean.nc",
+      "title_in_file": "GPCP Version 2.3 Combined Precipitation Dataset (Final)",
+      "version_in_file": "V2.3",
+      "data_variable": "precip",
+      "units_in_file": "mm/day",
+      "retrieved_utc": "2026-11-14T20:20:20+00:00",
+      "first_month": "1981-01",
+      "last_month": "2025-12",
+      "months": 540,
+      "grid": "2.5\u00b0 x 2.5\u00b0, 72 x 144 cells",
+      "regional_mean": "mean of the grid cells that overlap the region box, weighted by overlap area x cos(latitude)",
+      "regions": {
+        "upper-colorado": {
+          "n_cells": 12,
+          "bbox": [
+            -109.0,
+            37.0,
+            -102.0,
+            41.0
+          ]
+        },
+        "north-slope": {
+          "n_cells": 12,
+          "bbox": [
+            -160.0,
+            66.0,
+            -150.0,
+            71.0
+          ]
+        },
+        "rondonia": {
+          "n_cells": 9,
+          "bbox": [
+            -66.0,
+            -13.0,
+            -60.0,
+            -8.0
+          ]
+        },
+        "moroccan-atlas": {
+          "n_cells": 8,
+          "bbox": [
+            -10.0,
+            30.0,
+            -2.0,
+            35.0
+          ]
+        },
+        "central-sahel": {
+          "n_cells": 12,
+          "bbox": [
+            0.0,
+            12.0,
+            10.0,
+            17.0
+          ]
+        },
+        "punjab-plain": {
+          "n_cells": 12,
+          "bbox": [
+            71.0,
+            28.0,
+            78.0,
+            33.0
+          ]
+        },
+        "malay-peninsula": {
+          "n_cells": 9,
+          "bbox": [
+            99.0,
+            1.0,
+            105.0,
+            7.0
+          ]
+        },
+        "murray-darling": {
+          "n_cells": 12,
+          "bbox": [
+            140.0,
+            -37.0,
+            149.0,
+            -30.0
+          ]
+        }
+      },
+      "citation": "Adler, R. F., et al. (2018). The Global Precipitation Climatology Project (GPCP) Monthly Analysis (New Version 2.3) and a Review of 2017 Global Precipitation. Atmosphere, 9(4), 138. GPCP data provided by the NOAA PSL, Boulder, Colorado, USA, from https://psl.noaa.gov"
+    },
+    "gistemp": {
+      "name": "NASA GISS Surface Temperature Analysis (GISTEMP), version 4, 1200 km smoothing, land and ocean",
+      "opendap_url": "https://psl.noaa.gov/thredds/dodsC/Datasets/gistemp/combined/1200km/air.2x2.1200.mon.anom.comb.nc",
+      "title_in_file": "GISS Surface Temperature Analysis (GISTEMP): 1200km smoothing combined land/ocean",
+      "version_in_file": null,
+      "data_variable": "air",
+      "units_in_file": "degC",
+      "retrieved_utc": "2026-11-14T20:20:33+00:00",
+      "first_month": "1981-01",
+      "last_month": "2025-12",
+      "months": 540,
+      "grid": "2\u00b0 x 2\u00b0, 90 x 180 cells",
+      "regional_mean": "mean of the grid cells that overlap the region box, weighted by overlap area x cos(latitude)",
+      "regions": {
+        "upper-colorado": {
+          "n_cells": 12,
+          "bbox": [
+            -109.0,
+            37.0,
+            -102.0,
+            41.0
+          ]
+        },
+        "north-slope": {
+          "n_cells": 15,
+          "bbox": [
+            -160.0,
+            66.0,
+            -150.0,
+            71.0
+          ]
+        },
+        "rondonia": {
+          "n_cells": 9,
+          "bbox": [
+            -66.0,
+            -13.0,
+            -60.0,
+            -8.0
+          ]
+        },
+        "moroccan-atlas": {
+          "n_cells": 12,
+          "bbox": [
+            -10.0,
+            30.0,
+            -2.0,
+            35.0
+          ]
+        },
+        "central-sahel": {
+          "n_cells": 15,
+          "bbox": [
+            0.0,
+            12.0,
+            10.0,
+            17.0
+          ]
+        },
+        "punjab-plain": {
+          "n_cells": 12,
+          "bbox": [
+            71.0,
+            28.0,
+            78.0,
+            33.0
+          ]
+        },
+        "malay-peninsula": {
+          "n_cells": 16,
+          "bbox": [
+            99.0,
+            1.0,
+            105.0,
+            7.0
+          ]
+        },
+        "murray-darling": {
+          "n_cells": 20,
+          "bbox": [
+            140.0,
+            -37.0,
+            149.0,
+            -30.0
+          ]
+        }
+      },
+      "citation": "GISTEMP Team (2026). GISS Surface Temperature Analysis (GISTEMP), version 4. NASA Goddard Institute for Space Studies. https://data.giss.nasa.gov/gistemp/. Lenssen, N., et al. (2019). Improvements in the GISTEMP uncertainty model. J. Geophys. Res. Atmos., 124(12), 6307-6326."
+    }
+  }
+}

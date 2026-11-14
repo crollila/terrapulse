@@ -64,12 +64,19 @@ export default function RegionMap({ rows, selected, onSelect }: Props) {
             { id: "gibs", type: "raster", source: "gibs", paint: { "raster-brightness-max": 0.8, "raster-saturation": -0.25 } },
           ],
         },
-        center: [15, 22],
-        zoom: 0.6,
-        minZoom: 0,
+        // Open on a view that holds all eight regions at any map size.
+        bounds: [
+          [-166, -54],
+          [154, 74],
+        ],
+        fitBoundsOptions: { padding: { top: 30, bottom: 12, left: 12, right: 12 } },
         maxZoom: 6,
         attributionControl: { compact: true },
         renderWorldCopies: false,
+        // The map sits in a long scrolling page. Without this, a mouse wheel or a finger moving over
+        // the map zooms or drags the map and the page stops scrolling. With it, zooming needs Ctrl
+        // (or Cmd) + scroll, or two fingers, and MapLibre shows a short hint when someone tries without.
+        cooperativeGestures: true,
       });
       mapRef.current = map;
       map.addControl(new ml.NavigationControl({ showCompass: false }), "top-right");
@@ -101,7 +108,11 @@ export default function RegionMap({ rows, selected, onSelect }: Props) {
           const el = document.createElement("button");
           el.type = "button";
           el.className = "tp-map-label";
-          el.textContent = r.name;
+          // A phone-sized map cannot hold eight full names; use the short ones there.
+          const compact = (container.current?.clientWidth ?? 800) < 560;
+          el.textContent = compact ? (r.short_name ?? r.name) : r.name;
+          el.title = r.name;
+          el.setAttribute("aria-label", r.name);
           el.dataset.id = r.region;
           el.dataset.selected = String(r.region === selected);
           el.addEventListener("click", (ev) => {
@@ -109,7 +120,11 @@ export default function RegionMap({ rows, selected, onSelect }: Props) {
             latest.current.onSelect(r.region);
           });
           const [w, , e, n] = r.bbox;
-          markers.current.push(new ml.Marker({ element: el, anchor: "bottom" }).setLngLat([(w + e) / 2, n]).addTo(map));
+          const mid = (w + e) / 2;
+          // Labels of regions near the left or right edge grow inward so they are not cut off.
+          const anchor = mid < -120 ? "bottom-left" : mid > 120 ? "bottom-right" : "bottom";
+          const at = anchor === "bottom-left" ? w : anchor === "bottom-right" ? e : mid;
+          markers.current.push(new ml.Marker({ element: el, anchor }).setLngLat([at, n]).addTo(map));
         }
       });
     });

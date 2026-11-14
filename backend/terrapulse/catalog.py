@@ -1,7 +1,11 @@
 """Supported regions, variables and data sources.
 
 Regions are latitude/longitude boxes no larger than 10 x 10 degrees (the NASA
-POWER regional API limit).
+POWER regional API limit). A box is not a basin, a state or a country: each
+``name`` and ``setting`` says what the rectangle really covers, including sea.
+The ``land_share`` is the share of the box that is land, counted on the 0.2
+degree MODIS grid (pixels with at least one valid NDVI value); region ids are
+kept stable because data files are named after them.
 
 Every variable names its data source and its own analysis period:
 
@@ -21,52 +25,76 @@ END_YEAR = 2025
 # bbox = [lon_min, lat_min, lon_max, lat_max]
 REGIONS: dict[str, dict] = {
     "upper-colorado": {
-        "name": "Upper Colorado River Basin",
+        "name": "Colorado",
+        "short_name": "Colorado",
         "country": "United States",
         "bbox": [-109.0, 37.0, -102.0, 41.0],
-        "setting": "Semi-arid mountain headwaters that supply water to the US Southwest.",
+        "setting": "A box matching the state of Colorado: the Rocky Mountains, where the Colorado, Rio Grande, "
+        "Arkansas and South Platte rivers rise, and the high plains to the east.",
+        "land_share": 1.0,
     },
     "north-slope": {
-        "name": "Alaska North Slope",
+        "name": "Northern Alaska",
+        "short_name": "N. Alaska",
         "country": "United States",
         "bbox": [-160.0, 66.0, -150.0, 71.0],
-        "setting": "Arctic tundra and permafrost on the edge of the Arctic Ocean.",
+        "setting": "Arctic tundra and permafrost: the North Slope and the Brooks Range, with a strip of interior "
+        "Alaska to the south and a little of the Arctic Ocean.",
+        "land_share": 0.97,
     },
     "rondonia": {
-        "name": "Southwestern Amazon (Rondonia)",
-        "country": "Brazil",
+        "name": "Southwestern Amazon (Rondônia)",
+        "short_name": "SW Amazon",
+        "country": "Brazil / Bolivia",
         "bbox": [-66.0, -13.0, -60.0, -8.0],
-        "setting": "Tropical rainforest with extensive land clearing since the 1980s.",
+        "setting": "Tropical rainforest with extensive land clearing since the 1980s. The box covers the Brazilian "
+        "state of Rondônia and neighbouring parts of Bolivia and of other Brazilian states.",
+        "land_share": 1.0,
     },
     "moroccan-atlas": {
-        "name": "Moroccan Atlas",
+        "name": "Northern Morocco",
+        "short_name": "N. Morocco",
         "country": "Morocco",
         "bbox": [-10.0, 30.0, -2.0, 35.0],
-        "setting": "Mediterranean-to-desert transition across the Atlas Mountains.",
+        "setting": "Mediterranean-to-desert transition across the Atlas Mountains and the Atlantic plains. "
+        "About a sixth of the box is sea.",
+        "land_share": 0.83,
     },
     "central-sahel": {
         "name": "Central Sahel",
-        "country": "Niger / Nigeria",
+        "short_name": "Sahel",
+        "country": "Niger / Nigeria / Burkina Faso / Mali",
         "bbox": [0.0, 12.0, 10.0, 17.0],
-        "setting": "Semi-arid belt between the Sahara and the West African savanna.",
+        "setting": "Semi-arid belt between the Sahara and the West African savanna, from eastern Burkina Faso "
+        "across southern Niger and northern Nigeria.",
+        "land_share": 1.0,
     },
     "punjab-plain": {
-        "name": "Punjab Plain",
+        "name": "Punjab and the north-west Indian plains",
+        "short_name": "Punjab",
         "country": "Pakistan / India",
         "bbox": [71.0, 28.0, 78.0, 33.0],
-        "setting": "Intensively irrigated farmland of the upper Indus and Ganges plains.",
+        "setting": "Intensively irrigated farmland of the upper Indus plain and north-west India, with part of "
+        "the Thar Desert in the south and Himalayan foothills in the north-east.",
+        "land_share": 1.0,
     },
     "malay-peninsula": {
-        "name": "Malay Peninsula",
-        "country": "Malaysia",
+        "name": "Malay Peninsula and Strait of Malacca",
+        "short_name": "Malay Pen.",
+        "country": "Malaysia / Indonesia / Thailand / Singapore",
         "bbox": [99.0, 1.0, 105.0, 7.0],
-        "setting": "Humid equatorial land and coastal seas with two monsoon seasons.",
+        "setting": "Humid equatorial land and sea with two monsoon seasons: Peninsular Malaysia, eastern Sumatra "
+        "and the waters around them. About half of the box is sea.",
+        "land_share": 0.52,
     },
     "murray-darling": {
-        "name": "Murray-Darling Basin (south)",
+        "name": "Southern Murray–Darling Basin",
+        "short_name": "Murray–Darling",
         "country": "Australia",
         "bbox": [140.0, -37.0, 149.0, -30.0],
-        "setting": "Australia's main agricultural river basin, prone to multi-year drought.",
+        "setting": "Australia's main agricultural river basin, prone to multi-year drought. The box covers its "
+        "southern half and some land just outside it.",
+        "land_share": 1.0,
     },
 }
 

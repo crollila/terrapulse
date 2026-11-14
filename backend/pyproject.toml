@@ -1,7 +1,7 @@
 [project]
 name = "terrapulse"
 version = "0.1.0"
-description = "TerraPulse: Earth-system trend detection with honest uncertainty (NASA Space Apps 2026)"
+description = "TerraPulse: Earth-system trend detection with honest uncertainty (NASA Space Apps 2026). Code generated with an SI coding assistant (Anthropic Claude); see README."
 requires-python = ">=3.11"
 license = { text = "MIT" }
 dependencies = [

@@ -11,7 +11,7 @@ from functools import lru_cache
 import numpy as np
 from statsmodels.stats.multitest import multipletests
 
-from . import data, stats
+from . import crosscheck, data, stats
 from .catalog import REGIONS, VARIABLES, variable_source
 
 MIN_WINDOW_YEARS = 15
@@ -203,6 +203,7 @@ def clear_caches() -> None:
     analysis.cache_clear()
     overview.cache_clear()
     data.clear_cache()
+    crosscheck.clear_cache()
 
 
 def custom_trend(region_id: str, variable: str, start: int | None = None, end: int | None = None) -> dict:
@@ -255,6 +256,8 @@ def analysis(region_id: str, variable: str) -> dict:
             "windows": windows,
             "windows_summary": wsum,
             "verdict": verdict(trend, wsum, var["units"]),
+            # The same trend from an independent dataset, where one exists (crosscheck.py).
+            "crosscheck": crosscheck.compare(region_id, variable, trend, anomalies),
             "quality": {
                 "months_total": int(len(values)),
                 "months_missing": n_missing,
@@ -282,6 +285,7 @@ def overview(variable: str) -> dict:
             {
                 "region": region_id,
                 "name": REGIONS[region_id]["name"],
+                "short_name": REGIONS[region_id]["short_name"],
                 "bbox": REGIONS[region_id]["bbox"],
                 "slope_per_decade": a["trend"]["ols"]["slope_per_decade"],
                 "ci_low": a["trend"]["ols"]["ci_low"],
@@ -290,6 +294,7 @@ def overview(variable: str) -> dict:
                 "mk_p_value": a["trend"]["mann_kendall"]["p_value"],
                 "verdict": a["verdict"]["code"],
                 "verdict_title": a["verdict"]["title"],
+                "crosscheck": a["crosscheck"]["code"],
             }
         )
     reject, p_adj, _, _ = multipletests([r["p_value"] for r in rows], alpha=ALPHA, method="fdr_bh")

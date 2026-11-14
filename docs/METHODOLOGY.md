@@ -23,20 +23,27 @@ computed, why, and what it cannot tell you.
 | `WS10M` | Wind speed at 10 meters (derived by POWER from MERRA-2 winds) | m/s |
 | `GWETROOT` | Root-zone soil wetness | fraction, 0–1 |
 
-| Region id | Box (lon west, lat south, lon east, lat north) | Grid cells |
-|---|---|---|
-| `upper-colorado` | −109, 37, −102, 41 | see `provenance.json` |
-| `north-slope` | −160, 66, −150, 71 | |
-| `rondonia` | −66, −13, −60, −8 | |
-| `moroccan-atlas` | −10, 30, −2, 35 | |
-| `central-sahel` | 0, 12, 10, 17 | |
-| `punjab-plain` | 71, 28, 78, 33 | |
-| `malay-peninsula` | 99, 1, 105, 7 | |
-| `murray-darling` | 140, −37, 149, −30 | |
+| Region id | Name shown | Box (lon west, lat south, lon east, lat north) | Land in the box |
+|---|---|---|---|
+| `upper-colorado` | Colorado | −109, 37, −102, 41 | all |
+| `north-slope` | Northern Alaska | −160, 66, −150, 71 | 97% |
+| `rondonia` | Southwestern Amazon (Rondônia) | −66, −13, −60, −8 | all |
+| `moroccan-atlas` | Northern Morocco | −10, 30, −2, 35 | 83% |
+| `central-sahel` | Central Sahel | 0, 12, 10, 17 | all |
+| `punjab-plain` | Punjab and the north-west Indian plains | 71, 28, 78, 33 | all |
+| `malay-peninsula` | Malay Peninsula and Strait of Malacca | 99, 1, 105, 7 | 52% |
+| `murray-darling` | Southern Murray–Darling Basin | 140, −37, 149, −30 | all |
 
-Regions are rectangles no larger than 10° × 10°, the POWER regional limit. They are named after the
-main feature they contain and are not exact basin or administrative boundaries. Boxes include any
-ocean cells they cover (notably `malay-peninsula` and `north-slope`).
+Regions are rectangles no larger than 10° × 10°, the POWER regional limit. **A rectangle is not a
+basin, a state or a country**, and the names describe what each rectangle really covers. For
+example `upper-colorado` matches the state of Colorado, plains included, and is not the Upper
+Colorado River Basin; `malay-peninsula` is about half sea and includes eastern Sumatra. The ids are
+kept because data files are named after them. Land share is counted on the 0.2° MODIS grid (pixels
+with at least one valid NDVI value), and a test checks it against the delivered NDVI files.
+
+For the MERRA-2 weather variables the regional mean includes the sea cells in a box, so a trend
+for a box that is half sea is partly a trend over the sea. Soil wetness and NDVI exist over land
+only. Grid-cell counts are in the provenance files.
 
 **Regional mean.** For each month, the regional value is the mean over all grid cells returned for
 the box, weighted by the cosine of each cell's latitude so that cells count in proportion to their
@@ -68,11 +75,11 @@ re-processed independently.
 
 | Region | Months with at least half of the land pixels valid | Calendar months analysed |
 |---|---|---|
-| Alaska North Slope | 129 | June–September only (snow and polar night remove the rest; May and October are present in too few years) |
-| Upper Colorado | 307 | All except January (snow) |
+| Northern Alaska | 129 | June–September only (snow and polar night remove the rest; May and October are present in too few years) |
+| Colorado | 307 | All except January (snow) |
 | The other six regions | 321 | All |
 
-The North Slope NDVI trend is therefore a growing-season (June–September) trend.
+The Northern Alaska NDVI trend is therefore a growing-season (June–September) trend.
 
 Because the record does not start in January, each variable carries its own period. For NDVI the
 date windows span 2000–2026; the first and last calendar years are partial, annual means are shown
@@ -149,6 +156,41 @@ direction. Windows overlap heavily and are not independent tests; the shares are
 **Multiple regions.** For each variable, the eight regional p-values (adjusted t-test) are also
 adjusted with the Benjamini–Hochberg false-discovery-rate procedure at 0.05.
 
+**A second dataset.** A trend can pass every test above and still be a product of how one dataset
+was built. For the two variables with an openly available independent record, the same calculation
+(same period, same anomaly method, same two tests) is repeated on that record
+(`backend/terrapulse/crosscheck.py`):
+
+| Variable | Independent record | Grid | Access |
+|---|---|---|---|
+| Precipitation | GPCP Monthly Analysis v2.3: satellite estimates merged with rain gauges (Adler et al. 2018) | 2.5° | NOAA PSL, OPeNDAP |
+| Air temperature | NASA GISTEMP v4, 1200 km smoothing, land and ocean: stations, ships and buoys (Lenssen et al. 2019) | 2° | NOAA PSL, OPeNDAP |
+
+The regional series is the mean of the grid cells that overlap the box, weighted by overlap area
+and the cosine of latitude. GISTEMP is distributed as anomalies from 1951–1980; anomalies are
+recomputed against 1981–2025 calendar-month means like every other series, which does not change
+a trend. The result is one of:
+
+| Second opinion | Rule ("significant" = both tests p < 0.05, as for the verdict) |
+|---|---|
+| Supported | Both significant, same sign, and the two 95% ranges overlap |
+| Direction only | Both significant, same sign, ranges do not overlap |
+| Not confirmed | Significant here, not significant in the independent record |
+| Second record finds a trend this one does not | Not significant here, significant in the independent record |
+| Also no trend | Not significant in either |
+| Contradicted | Both significant, opposite signs |
+| No second dataset checked | Humidity, wind speed, soil wetness and NDVI |
+
+Results in the current snapshot: of the eight temperature trends, six are supported, one is
+supported in direction only (southwestern Amazon, where MERRA-2 warms about twice as fast) and one
+is a warming GISTEMP sees and MERRA-2 does not (Punjab box). Of the eight rainfall trends, two are
+supported, two more agree on no trend, one is supported in direction only (southwestern Amazon,
+where MERRA-2's decline is about twice GPCP's), one is a small decline GPCP sees and MERRA-2 does
+not (Colorado), and **two are not confirmed** (the increases in the Malay Peninsula and Punjab
+boxes). Overlapping 95% ranges is a simple, lenient test of agreement, and both independent records
+are coarse next to the boxes: agreement is support, not proof, and disagreement shows that at
+least one record is wrong without saying which.
+
 **Years needed to detect (Weatherhead et al. 1998).** The record length that gives a 90% chance of
 detecting a real trend of size ω per year at the 95% confidence level is
 
@@ -163,7 +205,7 @@ long a record would be needed", which is not a prediction that the trend will co
 
 | Verdict | Rule |
 |---|---|
-| Holds up | Both tests significant, at least 90% of windows share the full-record sign, and no window is significant in the opposite direction |
+| Holds across dates | Both tests significant, at least 90% of windows share the full-record sign, and no window is significant in the opposite direction |
 | Depends on dates | Both tests significant but the window rule fails; or neither is significant while at least 25% of windows are significant on their own |
 | Tests disagree | Exactly one of the two tests is significant |
 | Not detected yet | Neither test is significant and fewer than 25% of windows are |
@@ -175,12 +217,16 @@ clarity. They are constants in `analysis.py` and `stats.py` and can be changed a
 
 - **Reanalysis, not observation.** MERRA-2 is a model constrained by observations. The mix of
   observations it assimilates changed over 1981–2025 (new satellites, changes in the rain-gauge
-  network used to correct precipitation). Such changes can create or mask trends. Precipitation and
-  soil-wetness trends are the most exposed. Large values, such as the Rondonia precipitation
-  decline, should be checked against independent products (for example GPM IMERG or GPCP) before
-  being cited. This check has not been done.
-- **No independent validation.** Results have not been compared with station data, other
-  reanalyses or published regional trends.
+  network used to correct precipitation). Such changes can create or mask trends. The second
+  opinions in section 5 show this is not hypothetical: MERRA-2's rainfall increases in the Malay
+  Peninsula and Punjab boxes are not confirmed by GPCP, its rainfall decline and warming in the
+  southwestern Amazon box are about twice the size the independent records show, and it shows no
+  warming in the Punjab box where GISTEMP does. Those MERRA-2 trends should not be cited as findings.
+- **Independent validation is partial.** Only rainfall and temperature have a second dataset.
+  Humidity, wind speed, soil wetness (which depends on the same rainfall) and NDVI have none, and
+  nothing has been compared with station data or published regional trends. In the boxes where
+  MERRA-2's rainfall or temperature disagrees with the independent record, its humidity and soil
+  wetness trends deserve the same doubt.
 - **Linear trends only.** A straight line can be a poor description of a series with steps, cycles
   or regime shifts. The date-window heat map exposes this but does not model it.
 - **AR(1) only.** The t-test adjustment assumes persistence is described by lag-1 autocorrelation.
@@ -198,7 +244,7 @@ clarity. They are constants in `analysis.py` and `stats.py` and can be changed a
 
 ## 8. Verification
 
-`backend/tests` (63 tests, run with `uv run pytest`):
+`backend/tests` (79 tests, run with `uv run pytest`):
 
 | Check | Reference |
 |---|---|
@@ -219,14 +265,19 @@ clarity. They are constants in `analysis.py` and `stats.py` and can be changed a
 | Gap-aware lag-1 autocorrelation equals the standard estimator on complete data and beats it on gappy AR(1) noise | simulation |
 | NDVI is absent from the API and the static export unless real, validated files exist | — |
 | The delivered NDVI files pass every format rule, stay within the valid range and leave enough months for a trend in every region | committed files |
+| Second opinions: grid-cell overlap weighting, the agreement rule, completeness of the committed GPCP and GISTEMP series | hand calculation; committed files |
+| The second-opinion results quoted in the README match the data | committed files |
+| Each region's stated land share matches the NDVI grid | delivered NDVI files |
 
 ## References
 
+- Adler, R. F., et al. (2018). The Global Precipitation Climatology Project (GPCP) Monthly Analysis (New Version 2.3) and a review of 2017 global precipitation. *Atmosphere*, 9(4), 138.
 - Benjamini, Y., & Hochberg, Y. (1995). Controlling the false discovery rate. *J. R. Stat. Soc. B*, 57, 289–300.
 - Didan, K. (2021). *MODIS/Terra Vegetation Indices Monthly L3 Global 0.05Deg CMG V061*. NASA LP DAAC. https://doi.org/10.5067/MODIS/MOD13C2.061
 - Gelaro, R., et al. (2017). MERRA-2. *J. Climate*, 30, 5419–5454.
 - Hamed, K. H., & Rao, A. R. (1998). A modified Mann-Kendall trend test for autocorrelated data. *J. Hydrol.*, 204, 182–196.
 - Kendall, M. G. (1975). *Rank Correlation Methods*. Griffin.
+- Lenssen, N., et al. (2019). Improvements in the GISTEMP uncertainty model. *J. Geophys. Res. Atmos.*, 124, 6307–6326.
 - Mann, H. B. (1945). Nonparametric tests against trend. *Econometrica*, 13, 245–259.
 - Santer, B. D., et al. (2008). Consistency of modelled and observed temperature trends in the tropical troposphere. *Int. J. Climatol.*, 28, 1703–1722.
 - Sen, P. K. (1968). Estimates of the regression coefficient based on Kendall's tau. *J. Am. Stat. Assoc.*, 63, 1379–1389.

@@ -16,6 +16,16 @@ body {
   outline-offset: 2px;
 }
 
+/* Fine print: 11px on a desktop, larger on a phone (see the phone rules below). */
+.tp-fine {
+  font-size: 11px;
+}
+
+.tp-nav a {
+  display: inline-flex;
+  align-items: center;
+}
+
 .tp-map-label {
   padding: 2px 6px;
   border-radius: 4px;
@@ -36,4 +46,50 @@ body {
 
 .maplibregl-ctrl-attrib {
   font-size: 10px;
+}
+
+/* MapLibre's "use ctrl + scroll to zoom" hint, in the page's own colours. */
+.maplibregl-cooperative-gesture-screen {
+  background: rgba(2, 6, 23, 0.72);
+  font-size: 0.875rem;
+  padding: 1rem;
+  text-align: center;
+}
+
+/* Phones: no text smaller than about 13px. Raising the root size scales every rem-based size
+   (text and spacing) together, so the layout keeps its proportions. */
+@media (max-width: 639px) {
+  html {
+    font-size: 17.5px;
+  }
+
+  .tp-fine,
+  .tp-map-label {
+    font-size: 0.75rem;
+  }
+
+  .maplibregl-ctrl-attrib {
+    font-size: 11px;
+  }
+}
+
+/* Touch screens and phones: controls are at least 44px tall, the usual minimum for a finger.
+   Map labels stay smaller so eight of them still fit on a small map; the Region menu below the
+   map is the full-size way to choose a region. */
+@media (pointer: coarse), (max-width: 639px) {
+  button,
+  select,
+  .tp-nav a {
+    min-height: 44px;
+  }
+
+  .tp-map-label {
+    min-height: 32px;
+    padding: 6px 10px;
+  }
+
+  .maplibregl-ctrl-group button {
+    width: 44px;
+    height: 44px;
+  }
 }

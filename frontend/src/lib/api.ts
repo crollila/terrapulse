@@ -3,7 +3,29 @@
 //  - static JSON exported by `python -m terrapulse.export`  (GET {basePath}/data/....json)
 // See docs/API.md.
 
-export type Region = { id: string; name: string; country: string; bbox: [number, number, number, number]; setting: string };
+export type Region = {
+  id: string;
+  name: string;
+  short_name?: string; // for map labels on small screens
+  country: string;
+  bbox: [number, number, number, number]; // [west, south, east, north]
+  setting: string;
+  land_share?: number; // share of the box that is land (0-1)
+};
+
+export type CrosscheckCode = "agrees" | "agrees_none" | "direction_only" | "not_confirmed" | "missed" | "conflict" | "none";
+
+/** The same trend computed from an independent dataset, where one exists. */
+export type Crosscheck = {
+  code: CrosscheckCode;
+  label: string;
+  text: string;
+  period?: [number, number];
+  trend?: { slope_per_decade: number; ci_low: number; ci_high: number; p_value: number; mk_p_value: number; significant: boolean; n_months: number };
+  anomaly_correlation?: number | null;
+  dataset?: { id: string; name: string; long_name: string; kind: string; native_grid: string; access: string; url: string; citation: string; caveat: string };
+  cells?: number | null;
+};
 export type Variable = {
   id: string;
   name: string;
@@ -100,6 +122,7 @@ export type Analysis = {
     slope_max: number;
   };
   verdict: { code: VerdictCode; title: string; text: string; direction: "rising" | "falling" };
+  crosscheck?: Crosscheck;
   quality: {
     months_total: number;
     months_missing: number;
@@ -125,6 +148,7 @@ export type Analysis = {
 export type OverviewRow = {
   region: string;
   name: string;
+  short_name?: string;
   bbox: [number, number, number, number];
   slope_per_decade: number;
   ci_low: number;
@@ -135,6 +159,7 @@ export type OverviewRow = {
   significant_after_fdr: boolean;
   verdict: VerdictCode;
   verdict_title: string;
+  crosscheck?: CrosscheckCode;
 };
 
 export type Overview = {

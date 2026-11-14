@@ -20,7 +20,7 @@ years or outside the variable's period: `422`. `start` and `end` default to the 
 
 ```jsonc
 {
-  "region":   { "id", "name", "country", "bbox": [lonW, latS, lonE, latN], "setting" },
+  "region":   { "id", "name", "short_name", "country", "bbox": [lonW, latS, lonE, latN], "setting", "land_share" },
   "variable": { "id", "name", "long_name", "units", "definition", "decimals", "source", "period" },
   "period":   [1981, 2025],           // per variable; [2000, 2026] for NDVI
   "first_month": "1981-01", "last_month": "2025-12",
@@ -47,6 +47,13 @@ years or outside the variable's period: `422`. `start` and `end` default to the 
                        "share_significant_same_direction", "share_significant_opposite_direction",
                        "slope_min", "slope_max" },
   "verdict": { "code": "robust | date_sensitive | mixed | not_detected", "title", "text", "direction" },
+  "crosscheck": {                   // the same trend from an independent dataset, where one exists
+    "code": "agrees | agrees_none | direction_only | not_confirmed | missed | conflict | none",
+    "label", "text",
+    "period", "trend": { "slope_per_decade", "ci_low", "ci_high", "p_value", "mk_p_value", "significant", "n_months" },
+    "anomaly_correlation", "cells", "retrieved_utc",
+    "dataset": { "id", "name", "long_name", "kind", "native_grid", "access", "url", "citation", "caveat" }
+  },                                // code "none" carries only code, label and text
   "quality": { "months_total", "months_missing", "coverage", "grid_cells", "min_cells_valid",
                "lag1_autocorrelation", "n_effective", "units_reported_by_nasa",
                "months_used", "calendar_months_excluded" },
