@@ -177,7 +177,7 @@ a trend. The result is one of:
 | Direction only | Both significant, same sign, ranges do not overlap |
 | Not confirmed | Significant here, not significant in the independent record |
 | Second record finds a trend this one does not | Not significant here, significant in the independent record |
-| Also no trend | Not significant in either |
+| Also no significant trend | Not significant in either |
 | Contradicted | Both significant, opposite signs |
 | No second dataset checked | Humidity, wind speed, soil wetness and NDVI |
 
@@ -190,6 +190,58 @@ not (Colorado), and **two are not confirmed** (the increases in the Malay Penins
 boxes). Overlapping 95% ranges is a simple, lenient test of agreement, and both independent records
 are coarse next to the boxes: agreement is support, not proof, and disagreement shows that at
 least one record is wrong without saying which.
+
+**A documented data problem, tested: the 2005 shift in MERRA-2 rainfall over the Amazon.** MERRA-2
+corrects its modelled precipitation toward rain-gauge and satellite observations, and that
+corrected field (`PRECTOTCORR`) is what TerraPulse uses and what the MERRA-2 land model sees.
+Reichle et al. (2017) show that over the Amazon (72.5°W–50°W, 12.5°S–2.5°N) corrected MERRA-2
+precipitation drops against GPCP from 2005, the year the number of gauges behind the correction
+falls sharply; the same figure is on slide 12 of Reichle (2023), which attributes such
+discontinuities to changes in the gauge product and the observing system. The team's validation
+review ([SCIENTIFIC_VALIDATION.md](../SCIENTIFIC_VALIDATION.md)) pointed to this and recommended
+testing it on the exact region box, which lies almost entirely inside that area.
+
+The test (`stats.level_shift`, `crosscheck.known_issue`) fits, by least squares, to the monthly
+difference *d* between the MERRA-2 and GPCP anomalies:
+
+    d(t) = a + b · (t − mean t) + c · [t ≥ 2005]
+
+where *c* is the step and *b* a steady drift between the two records. Standard errors use the same
+effective-sample-size adjustment for persistence as the trend test. The break year is taken from
+the publication, not chosen from the data; as a consistency check only, the code also reports the
+single break year that fits best.
+
+| Quantity (south-western Amazon box, rainfall, mm/day) | Value |
+|---|---|
+| Mean MERRA-2 minus GPCP, 1981–2004 | −0.13 |
+| Mean MERRA-2 minus GPCP, 2005–2025 | −0.99 |
+| Step at 2005, *c* | −1.07 (95% range −1.51 to −0.63) |
+| Drift left between the records, *b* | +0.10 per decade (95% range −0.07 to +0.26): not significant |
+| Best-fitting single break year | 2005 |
+| Trend 1981–2004, MERRA-2 against GPCP (per decade) | −0.14 against −0.14; neither significant |
+| Trend 2005–2025, MERRA-2 against GPCP (per decade) | −0.59 against −0.83; both significant |
+| Trend 1981–2025, MERRA-2 against GPCP (per decade) | −0.54 against −0.28 |
+
+Reading: the two records move together before 2005 and after it, and differ by a jump in 2005. So
+much of the gap between MERRA-2's full-record rate and GPCP's probably comes from how MERRA-2 was
+built, not from rainfall. Both records still show a decline, and Moreira et al. (2023) report
+declining rainfall in parts of Rondônia for 1981–2020 from a third dataset (CHIRPS), for a
+different area and period. What this does not establish: the true rate (GPCP is coarse and has its
+own changes in gauge input), the cause of any decline, or a like-for-like check against CHIRPS,
+which has not been done. Root-zone soil wetness in the same box is computed by MERRA-2 from the
+same corrected rainfall, so its trend may be partly inherited from the shift; the app says so, and
+that has not been tested.
+
+**Detected is not validated.** These are three different statements, and TerraPulse keeps them apart:
+
+| Statement | What it needs | Where TerraPulse stands |
+|---|---|---|
+| A trend is **detected** in a dataset | The significance tests, the date-window check and the multiple-region correction | Done for every variable and region (the verdict) |
+| The trend is **supported** by independent data | The same calculation on a record built in a different way | Done for rainfall (GPCP) and temperature (GISTEMP) only (the second opinion) |
+| The change is **validated** as real, at that size | Same-region independent measurements, known data problems ruled out, agreement with published work | Not claimed anywhere. One documented data problem is tested (above) |
+
+A significant trend that holds across dates can still be wrong about the real world, as the Amazon
+rainfall case shows. None of these statements says why a change happened.
 
 **Years needed to detect (Weatherhead et al. 1998).** The record length that gives a 90% chance of
 detecting a real trend of size ω per year at the 95% confidence level is
@@ -208,7 +260,7 @@ long a record would be needed", which is not a prediction that the trend will co
 | Holds across dates | Both tests significant, at least 90% of windows share the full-record sign, and no window is significant in the opposite direction |
 | Depends on dates | Both tests significant but the window rule fails; or neither is significant while at least 25% of windows are significant on their own |
 | Tests disagree | Exactly one of the two tests is significant |
-| Not detected yet | Neither test is significant and fewer than 25% of windows are |
+| Not detected | Neither test is significant and fewer than 25% of windows are. Shown as "No significant trend detected"; it does not mean nothing changed |
 
 The thresholds (90%, 25%, 15-year minimum window, 24-month lag limit) are judgment calls made for
 clarity. They are constants in `analysis.py` and `stats.py` and can be changed and re-run.
@@ -222,13 +274,19 @@ clarity. They are constants in `analysis.py` and `stats.py` and can be changed a
   Peninsula and Punjab boxes are not confirmed by GPCP, its rainfall decline and warming in the
   southwestern Amazon box are about twice the size the independent records show, and it shows no
   warming in the Punjab box where GISTEMP does. Those MERRA-2 trends should not be cited as findings.
+  For the Amazon rainfall case the cause is documented and tested (section 5): a shift in 2005.
+  The other disagreements have not been traced to a cause.
 - **Independent validation is partial.** Only rainfall and temperature have a second dataset.
   Humidity, wind speed, soil wetness (which depends on the same rainfall) and NDVI have none, and
-  nothing has been compared with station data or published regional trends. In the boxes where
+  nothing has been compared with station data. Published regional studies are cited as context
+  for the Amazon rainfall result only (SCIENTIFIC_VALIDATION.md); they cover other areas and
+  periods and do not confirm any number here. In the boxes where
   MERRA-2's rainfall or temperature disagrees with the independent record, its humidity and soil
   wetness trends deserve the same doubt.
 - **Linear trends only.** A straight line can be a poor description of a series with steps, cycles
-  or regime shifts. The date-window heat map exposes this but does not model it.
+  or regime shifts. The date-window heat map exposes this but does not model it. A step is fitted
+  in one place only, where a publication documents the date (section 5); the tool does not search
+  for undocumented breaks.
 - **AR(1) only.** The t-test adjustment assumes persistence is described by lag-1 autocorrelation.
   Long-memory behaviour would make the intervals too narrow.
 - **Skewed variables.** Precipitation anomalies are far from normally distributed, and in regions
@@ -244,7 +302,7 @@ clarity. They are constants in `analysis.py` and `stats.py` and can be changed a
 
 ## 8. Verification
 
-`backend/tests` (79 tests, run with `uv run pytest`):
+`backend/tests` (84 tests, run with `uv run pytest`):
 
 | Check | Reference |
 |---|---|
@@ -268,6 +326,8 @@ clarity. They are constants in `analysis.py` and `stats.py` and can be changed a
 | Second opinions: grid-cell overlap weighting, the agreement rule, completeness of the committed GPCP and GISTEMP series | hand calculation; committed files |
 | The second-opinion results quoted in the README match the data | committed files |
 | Each region's stated land share matches the NDVI grid | delivered NDVI files |
+| Level-shift fit: step and drift equal the statsmodels fit; a planted step is recovered; a steady trend with persistence is not mistaken for a step | statsmodels; synthetic series |
+| The Amazon 2005 break numbers quoted in this document match the data; known-issue notes appear only where one is documented | committed files |
 
 ## References
 
@@ -279,6 +339,9 @@ clarity. They are constants in `analysis.py` and `stats.py` and can be changed a
 - Kendall, M. G. (1975). *Rank Correlation Methods*. Griffin.
 - Lenssen, N., et al. (2019). Improvements in the GISTEMP uncertainty model. *J. Geophys. Res. Atmos.*, 124, 6307–6326.
 - Mann, H. B. (1945). Nonparametric tests against trend. *Econometrica*, 13, 245–259.
+- Moreira, R. M., et al. (2023). Precipitation Variability for Protected Areas of Primary Forest and Pastureland in Southwestern Amazônia. *Climate*, 11(2), 27. https://doi.org/10.3390/cli11020027
+- Reichle, R. H., et al. (2017). Land Surface Precipitation in MERRA-2. *J. Climate*, 30(5), 1643–1664. https://doi.org/10.1175/JCLI-D-16-0570.1
+- Reichle, R. (2023). *The Land Surface in Earth System Reanalysis*. ECMWF Annual Seminar on Earth System Reanalysis, Reading, UK, 4–8 September 2023. NASA NTRS 20230012995. https://ntrs.nasa.gov/citations/20230012995
 - Santer, B. D., et al. (2008). Consistency of modelled and observed temperature trends in the tropical troposphere. *Int. J. Climatol.*, 28, 1703–1722.
 - Sen, P. K. (1968). Estimates of the regression coefficient based on Kendall's tau. *J. Am. Stat. Assoc.*, 63, 1379–1389.
 - Weatherhead, E. C., et al. (1998). Factors affecting the detection of trends. *J. Geophys. Res.*, 103, 17149–17161.

@@ -172,7 +172,7 @@ def verdict(trend: dict, windows_summary: dict, units: str) -> dict:
                 f"a claim built on one of those windows would not hold for the full record."
             )
         else:
-            code, title = "not_detected", "No significant trend detected yet"
+            code, title = "not_detected", "No significant trend detected"
             text = f"Over {span} the estimated change is {rate}, which cannot be told apart from natural variability."
         if det["years_needed"] is not None:
             text += (
@@ -257,7 +257,7 @@ def analysis(region_id: str, variable: str) -> dict:
             "windows_summary": wsum,
             "verdict": verdict(trend, wsum, var["units"]),
             # The same trend from an independent dataset, where one exists (crosscheck.py).
-            "crosscheck": crosscheck.compare(region_id, variable, trend, anomalies),
+            "crosscheck": crosscheck.compare(region_id, variable, trend, anomalies, year, month, values),
             "quality": {
                 "months_total": int(len(values)),
                 "months_missing": n_missing,

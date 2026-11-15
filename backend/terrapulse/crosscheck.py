@@ -78,12 +78,51 @@ BY_VARIABLE = {meta["variable"]: key for key, meta in DATASETS.items()}
 
 LABELS = {
     "agrees": "Supported by a second dataset",
-    "agrees_none": "Second dataset also finds no trend",
+    "agrees_none": "Second dataset also finds no significant trend",
     "direction_only": "Second dataset agrees on direction, not size",
     "not_confirmed": "Not confirmed by a second dataset",
     "missed": "Second dataset finds a trend this one does not",
     "conflict": "Contradicted by a second dataset",
     "none": "No second dataset checked",
+}
+
+
+# Documented changes in how a dataset was built that can look like a trend in a region box.
+# An entry with a "break_year" is tested against the committed series (known_issue below);
+# an entry without one is a stated caveat that this project has not tested.
+REICHLE_2017 = {
+    "label": "Reichle et al. (2017), Land Surface Precipitation in MERRA-2, J. Climate 30(5), 1643–1664",
+    "url": "https://doi.org/10.1175/JCLI-D-16-0570.1",
+}
+REICHLE_2023 = {
+    "label": "Reichle (2023), The Land Surface in Earth System Reanalysis, slide 12 (NASA NTRS 20230012995)",
+    "url": "https://ntrs.nasa.gov/citations/20230012995",
+}
+MOREIRA_2023 = {
+    "label": "Moreira et al. (2023), Climate 11(2), 27: rainfall trends in Rondônia from CHIRPS, 1981–2020",
+    "url": "https://doi.org/10.3390/cli11020027",
+}
+KNOWN_ISSUES: dict[tuple[str, str], dict] = {
+    ("rondonia", "PRECTOTCORR"): {
+        "id": "merra2-gauge-correction-2005",
+        "break_year": 2005,
+        "title": "Known data issue: MERRA-2 rainfall shifts in 2005",
+        "documented": "NASA's own evaluation of MERRA-2 rainfall (Reichle et al. 2017) shows its gauge-corrected rainfall "
+        "dropping against GPCP across the Amazon (72.5°W–50°W, 12.5°S–2.5°N) from 2005, the year the number of rain "
+        "gauges behind the correction falls sharply. NASA attributes such jumps to changes in the gauge product and "
+        "the observing system, not to the weather.",
+        "sources": [REICHLE_2017, REICHLE_2023, MOREIRA_2023],
+        "credit": "Found by the team's scientific validation review (SCIENTIFIC_VALIDATION.md).",
+    },
+    ("rondonia", "GWETROOT"): {
+        "id": "merra2-gauge-correction-2005-inherited",
+        "title": "Known data issue: this soil wetness is driven by rainfall that shifts in 2005",
+        "text": "MERRA-2 computes soil wetness from its gauge-corrected rainfall. In this box that rainfall drops against "
+        "an independent record in 2005 for a documented data reason (open Precipitation for this region), so part of "
+        "this trend may be inherited from that shift rather than real. This project has not tested how much.",
+        "sources": [REICHLE_2017, REICHLE_2023],
+        "credit": "Found by the team's scientific validation review (SCIENTIFIC_VALIDATION.md).",
+    },
 }
 
 
@@ -212,14 +251,125 @@ def independent_trend(variable: str, region_id: str) -> dict:
     }
 
 
-def compare(region_id: str, variable: str, main_trend: dict, main_anomalies: np.ndarray | None = None) -> dict:
+def _subtrend(t: np.ndarray, anomalies: np.ndarray, sel: np.ndarray) -> dict:
+    ols = stats.ols_trend(t[sel], anomalies[sel])
+    return {
+        "slope_per_decade": ols["slope"] * 10,
+        "ci_low": ols["adjusted"]["ci_low"] * 10,
+        "ci_high": ols["adjusted"]["ci_high"] * 10,
+        "p_value": ols["adjusted"]["p_value"],
+        "significant": bool(ols["adjusted"]["p_value"] < ALPHA),
+    }
+
+
+def best_break_year(t: np.ndarray, year: np.ndarray, y: np.ndarray, min_years: int = 5) -> int:
+    """The single break year that fits ``y`` best (smallest squared error), leaving ``min_years`` on each side.
+
+    A consistency check only: the documented year is the one that is tested.
+    """
+    candidates = range(int(year.min()) + min_years, int(year.max()) - min_years + 2)
+    return min(candidates, key=lambda y0: stats.level_shift(t, y, year >= y0)["sse"])
+
+
+def known_issue(
+    region_id: str,
+    variable: str,
+    year: np.ndarray | None = None,
+    month: np.ndarray | None = None,
+    main_values: np.ndarray | None = None,
+    main_anomalies: np.ndarray | None = None,
+) -> dict | None:
+    """A documented data problem for this region and variable, tested against the series where possible."""
+    meta = KNOWN_ISSUES.get((region_id, variable))
+    if meta is None:
+        return None
+    out = {k: meta[k] for k in ("id", "title", "sources", "credit")}
+    if "break_year" not in meta:
+        return {**out, "text": meta["text"]}
+    if not available(variable) or year is None or month is None or main_values is None or main_anomalies is None:
+        return {**out, "text": meta["documented"]}
+
+    dataset = DATASETS[BY_VARIABLE[variable]]
+    table = _table(dataset["id"])
+    first_year, last_year = variable_period(variable)
+    sel = (table["year"] >= first_year) & (table["year"] <= last_year)
+    if int(sel.sum()) != len(main_values) or not (table.loc[sel, "year"].to_numpy() == year).all():
+        return {**out, "text": meta["documented"]}
+    other = table.loc[sel, region_id].to_numpy(dtype=float)
+    other_anomalies = stats.deseasonalize(month, other, stats.monthly_climatology(month, other))
+    t = year + (month - 0.5) / 12.0
+    brk = int(meta["break_year"])
+    after = year >= brk
+    gap = main_values - other
+    gap_before, gap_after = float(np.nanmean(gap[~after])), float(np.nanmean(gap[after]))
+    difference = main_anomalies - other_anomalies
+    fit = stats.level_shift(t, difference, after)
+    step, drift = fit["step"], fit["drift_per_year"]
+    periods = []
+    for start, end, mask in ((first_year, brk - 1, ~after), (brk, last_year, after)):
+        a, b = _subtrend(t, main_anomalies, mask), _subtrend(t, other_anomalies, mask)
+        overlap = bool(a["ci_low"] <= b["ci_high"] and b["ci_low"] <= a["ci_high"])
+        periods.append({"start": int(start), "end": int(end), "main": a, "independent": b, "ranges_overlap": overlap})
+
+    units, name = VARIABLES[variable]["units"], dataset["name"]
+
+    def num(x: float) -> str:
+        return f"{x:+.2f}".replace("-", "−")
+
+    def side(g: float) -> str:
+        return f"{abs(g):.2f} {units} {'below' if g < 0 else 'above'} {name}"
+
+    def pair(p: dict) -> str:
+        return f"{num(p['main']['slope_per_decade'])} against {num(p['independent']['slope_per_decade'])}"
+
+    drift_text = (
+        "with no significant drift left between the two records"
+        if drift["ci_low"] <= 0 <= drift["ci_high"]
+        else f"plus a drift of {num(drift['value'] * 10)} {units} per decade"
+    )
+    closing = "; in both periods the two records' 95% ranges overlap." if all(p["ranges_overlap"] for p in periods) else "."
+    text = (
+        f"{meta['documented']} This region box shows the same shift: MERRA-2 ran {side(gap_before)} in "
+        f"{first_year}–{brk - 1} and {side(gap_after)} from {brk}. Fitted as a jump in {brk} with a steady drift allowed, "
+        f"the jump is {num(step['value'])} {units} (95% range {num(step['ci_low'])} to {num(step['ci_high'])}), {drift_text}. "
+        f"Taken separately, the two periods give {pair(periods[0])} {units} per decade before {brk} and "
+        f"{pair(periods[1])} from {brk}{closing} So much of MERRA-2's faster full-record decline probably comes from "
+        f"how the dataset was built, not from rainfall. A detected trend is not a validated change: the direction is "
+        f"supported by both records, the size is not confirmed."
+    )
+    return {
+        **out,
+        "text": text,
+        "break_year": brk,
+        "independent_dataset": name,
+        "gap_before": gap_before,
+        "gap_after": gap_after,
+        "step": {k: step[k] for k in ("value", "ci_low", "ci_high", "p_value")},
+        "drift_per_decade": {"value": drift["value"] * 10, "ci_low": drift["ci_low"] * 10, "ci_high": drift["ci_high"] * 10},
+        "best_fit_break_year": best_break_year(t, year, difference),
+        "periods": periods,
+    }
+
+
+def compare(
+    region_id: str,
+    variable: str,
+    main_trend: dict,
+    main_anomalies: np.ndarray | None = None,
+    year: np.ndarray | None = None,
+    month: np.ndarray | None = None,
+    main_values: np.ndarray | None = None,
+) -> dict:
     """The cross-check block of the analysis payload."""
+    issue = known_issue(region_id, variable, year, month, main_values, main_anomalies)
+    extra = {"known_issue": issue} if issue else {}
     if not available(variable):
         return {
             "code": "none",
             "label": LABELS["none"],
             "text": "This result has not been compared with an independent dataset. It describes this dataset; "
             "whether another record would show the same is not known.",
+            **extra,
         }
     dataset = DATASETS[BY_VARIABLE[variable]]
     b = independent_trend(variable, region_id)
@@ -243,6 +393,7 @@ def compare(region_id: str, variable: str, main_trend: dict, main_anomalies: np.
         "dataset": {k: dataset[k] for k in ("id", "name", "long_name", "kind", "native_grid", "access", "url", "citation", "caveat")},
         "cells": (prov.get("regions") or {}).get(region_id, {}).get("n_cells"),
         "retrieved_utc": prov.get("retrieved_utc"),
+        **extra,
     }
 
 

@@ -19,10 +19,10 @@ const CASES = [
     variable: "T2M",
   },
   {
-    id: "second-opinion",
-    title: "A trend only one dataset sees",
-    hint: "Rainfall near the Malay Peninsula rises steeply in MERRA-2. An independent record does not show it.",
-    region: "malay-peninsula",
+    id: "known-issue",
+    title: "A real trend, the wrong size?",
+    hint: "Amazon rainfall falls in two records, but twice as fast in MERRA-2. A documented 2005 data change accounts for much of the gap.",
+    region: "rondonia",
     variable: "PRECTOTCORR",
   },
   {
@@ -34,8 +34,8 @@ const CASES = [
   },
   {
     id: "notyet",
-    title: "Not significant — yet",
-    hint: "Murray–Darling rainfall: see how many years of data it would take to be sure.",
+    title: "No trend, or not enough data?",
+    hint: "Murray–Darling rainfall: see how many years of data it would take to detect a trend this size.",
     region: "murray-darling",
     variable: "PRECTOTCORR",
   },
@@ -43,11 +43,16 @@ const CASES = [
 
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
+// Issue #3: the comparison region is drawn in violet, so it stays apart from the
+// primary region (which keeps its direction colour: amber up, sky blue down, grey
+// when not significant) in the legend and on the chart even where the two cross.
+const COMPARE_COLOR = "#a78bfa";
+
 const VERDICT_STYLE: Record<VerdictCode, { label: string; cls: string }> = {
   robust: { label: "Holds across dates", cls: "border-emerald-400/50 bg-emerald-400/10 text-emerald-200" },
   date_sensitive: { label: "Depends on dates", cls: "border-amber-400/50 bg-amber-400/10 text-amber-200" },
   mixed: { label: "Tests disagree", cls: "border-violet-400/50 bg-violet-400/10 text-violet-200" },
-  not_detected: { label: "Not detected yet", cls: "border-slate-400/50 bg-slate-400/10 text-slate-200" },
+  not_detected: { label: "Not detected", cls: "border-slate-400/50 bg-slate-400/10 text-slate-200" },
 };
 
 // How the second-opinion box is tinted: green when an independent record agrees, amber when it
@@ -61,6 +66,24 @@ const CROSS_STYLE: Record<CrosscheckCode, { box: string; text: string }> = {
   conflict: { box: "border-red-400/60 bg-red-500/10", text: "text-red-200" },
   none: { box: "border-slate-600/70 bg-slate-800/40", text: "text-slate-200" },
 };
+
+// Short region name for chart legends, where the full names do not fit.
+const shortName = (a: Analysis) => a.region.short_name ?? a.region.name;
+
+// What an independent dataset says about a region's full-record trend, in one sentence.
+// Used by the comparison caption so that a second region is never shown without it.
+function secondOpinion(a: Analysis): string {
+  const c = a.crosscheck;
+  if (!c) return "";
+  const label = c.label.charAt(0).toLowerCase() + c.label.slice(1);
+  return ` Second opinion (full record): ${label}.${c.known_issue ? " A known data issue affects this result." : ""}`;
+}
+
+// True when independent data does not back a region's trend as it stands.
+function weaklySupported(a: Analysis): boolean {
+  const code = a.crosscheck?.code;
+  return code === "not_confirmed" || code === "direction_only" || code === "missed" || code === "conflict" || !!a.crosscheck?.known_issue;
+}
 
 const lat = (v: number) => `${Math.abs(v)}°${v < 0 ? "S" : "N"}`;
 const lon = (v: number) => `${Math.abs(v)}°${v < 0 ? "W" : "E"}`;
@@ -94,6 +117,11 @@ export default function Dashboard() {
   const [range, setRange] = useState<[number, number] | null>(null);
   const [view, setView] = useState<"anomaly" | "raw">("anomaly");
   const [error, setError] = useState<string | null>(null);
+  // Issue #3: the region to compare with, if any. Its data is fetched with the same
+  // getAnalysis(region, variable) call as the primary region; no backend change needed.
+  const [compareRegion, setCompareRegion] = useState<string | null>(null);
+  const [compareAnalysis, setCompareAnalysis] = useState<Analysis | null>(null);
+  const [compareError, setCompareError] = useState<string | null>(null);
 
   useEffect(() => {
     getCatalog().then(setCatalog).catch((e) => setError(String(e.message ?? e)));
@@ -119,7 +147,26 @@ export default function Dashboard() {
     };
   }, [region, variable]);
 
+  useEffect(() => {
+    if (!compareRegion) return;
+    let live = true;
+    getAnalysis(compareRegion, variable)
+      .then((a) => {
+        if (!live) return;
+        setCompareAnalysis(a);
+        setCompareError(null);
+      })
+      .catch((e) => live && setCompareError(String(e.message ?? e)));
+    return () => {
+      live = false;
+    };
+  }, [compareRegion, variable]);
+
   const ready = analysis && analysis.region.id === region && analysis.variable.id === variable ? analysis : null;
+  const compareReady =
+    compareAnalysis && compareRegion && compareAnalysis.region.id === compareRegion && compareAnalysis.variable.id === variable
+      ? compareAnalysis
+      : null;
   const variableInfo = catalog?.variables.find((v) => v.id === variable);
   // Each variable has its own record length (NDVI starts in 2000, the MERRA-2 variables in 1981).
   const period = useMemo<[number, number]>(() => variableInfo?.period ?? catalog?.period ?? [1981, 2025], [variableInfo, catalog]);
@@ -129,18 +176,32 @@ export default function Dashboard() {
   const units = ready?.variable.units ?? "";
 
   const win = useMemo(() => ready?.windows.find((w) => w.start === start && w.end === end) ?? null, [ready, start, end]);
+  const win2 = useMemo(
+    () => compareReady?.windows.find((w) => w.start === start && w.end === end) ?? null,
+    [compareReady, start, end],
+  );
+  // The point of the comparison (issue #3): one variable can trend in opposite
+  // directions in different places. Say so plainly in the caption when it happens.
+  const oppositeDirections = win && win2 ? win.slope_per_decade * win2.slope_per_decade < 0 : false;
 
   const seriesPlot = useMemo(() => {
     if (!ready || !win) return null;
     const s = ready.series;
     const y = view === "anomaly" ? s.anomaly : s.value;
+    // Without a comparison the legend keeps its plain names. With one, the legend lists
+    // only one line per region, under its short name; the thin monthly lines and the
+    // 95% bands are explained in the caption, so the legend fits one row on a phone.
+    const comparing = !!compareReady;
+    const tag = comparing ? `${shortName(ready)} · ` : "";
+    const tag2 = compareReady ? `${shortName(compareReady)} · ` : "";
     const data: unknown[] = [
       {
         x: s.t,
         y,
         type: "scatter",
         mode: "lines",
-        name: view === "anomaly" ? "Monthly anomaly" : "Monthly value",
+        name: comparing ? `${tag}monthly` : view === "anomaly" ? "Monthly anomaly" : "Monthly value",
+        showlegend: !comparing,
         line: { color: "rgba(148,163,184,0.75)", width: 1 },
         hovertemplate: `%{x:.2f}: %{y:.3f} ${units}<extra></extra>`,
       },
@@ -151,12 +212,38 @@ export default function Dashboard() {
         y: s.annual_mean,
         type: "scatter",
         mode: "lines+markers",
-        name: "Annual mean",
+        name: comparing ? `${tag}annual mean` : "Annual mean",
         line: { color: COLORS.ink, width: 2 },
         marker: { size: 4 },
         hovertemplate: `%{x:.0f}: %{y:.3f} ${units}<extra></extra>`,
       });
+      // Raw values sit at different levels in different places, so the comparison
+      // overlays the second region's annual mean rather than its monthly values.
+      if (compareReady && compareReady.series.annual_year.length > 0) {
+        data.push({
+          x: compareReady.series.annual_year.map((v) => v + 0.5),
+          y: compareReady.series.annual_mean,
+          type: "scatter",
+          mode: "lines+markers",
+          name: `${tag2}annual mean`,
+          line: { color: COMPARE_COLOR, width: 2, dash: "dash" },
+          marker: { size: 4 },
+          hovertemplate: `%{x:.0f}: %{y:.3f} ${units}<extra></extra>`,
+        });
+      }
     } else if (view !== "raw") {
+      if (compareReady) {
+        data.push({
+          x: compareReady.series.t,
+          y: compareReady.series.anomaly,
+          type: "scatter",
+          mode: "lines",
+          name: `${tag2}monthly`,
+          showlegend: false,
+          line: { color: "rgba(167,139,250,0.75)", width: 1, dash: "dot" },
+          hovertemplate: `%{x:.2f}: %{y:.3f} ${units}<extra></extra>`,
+        });
+      }
       const x0 = start;
       const x1 = end + 1;
       const b = win.slope_per_decade / 10;
@@ -176,6 +263,7 @@ export default function Dashboard() {
           line: { width: 0 },
           fillcolor: color + "33",
           name: "95% range of slope",
+          showlegend: !comparing,
           hoverinfo: "skip",
         },
         {
@@ -183,11 +271,41 @@ export default function Dashboard() {
           y: line(win.slope_per_decade),
           type: "scatter",
           mode: "lines",
-          name: "Trend",
+          name: comparing ? `${tag}trend` : "Trend",
           line: { color, width: 3 },
           hoverinfo: "skip",
         },
       );
+      if (compareReady && win2) {
+        const b2 = win2.slope_per_decade / 10;
+        const ymid2 = win2.intercept + b2 * mid;
+        const line2 = (slope: number) => [ymid2 + (slope / 10) * (x0 - mid), ymid2 + (slope / 10) * (x1 - mid)];
+        const lo2 = line2(win2.ci_low);
+        const hi2 = line2(win2.ci_high);
+        data.push(
+          {
+            x: [x0, x1, x1, x0],
+            y: [lo2[0], lo2[1], hi2[1], hi2[0]],
+            type: "scatter",
+            fill: "toself",
+            mode: "lines",
+            line: { width: 0 },
+            fillcolor: COMPARE_COLOR + "26",
+            name: `${tag2}95% range of slope`,
+            showlegend: false,
+            hoverinfo: "skip",
+          },
+          {
+            x: [x0, x1],
+            y: line2(win2.slope_per_decade),
+            type: "scatter",
+            mode: "lines",
+            name: `${tag2}trend`,
+            line: { color: COMPARE_COLOR, width: 3, dash: "dash" },
+            hoverinfo: "skip",
+          },
+        );
+      }
     }
     return {
       data,
@@ -198,7 +316,7 @@ export default function Dashboard() {
         legend: { orientation: "h", y: -0.24, x: 0 },
       },
     };
-  }, [ready, win, view, start, end, units, period]);
+  }, [ready, win, win2, compareReady, view, start, end, units, period]);
 
   const heatPlot = useMemo(() => {
     if (!ready) return null;
@@ -309,6 +427,44 @@ export default function Dashboard() {
     setVariable(variableId);
     setRange(null);
     setView("anomaly");
+    // A region cannot be compared with itself.
+    if (compareRegion === regionId) {
+      setCompareRegion(null);
+      setCompareAnalysis(null);
+      setCompareError(null);
+    }
+  }
+
+  // Issue #3 welcome polish: download the series behind the time-series chart
+  // (primary region, plus the comparison region when one is selected) as CSV.
+  function downloadCsv() {
+    if (!ready) return;
+    const header = ["year", "month", `${ready.region.name} anomaly (${units})`, `${ready.region.name} value (${units})`];
+    if (compareReady) header.push(`${compareReady.region.name} anomaly (${units})`, `${compareReady.region.name} value (${units})`);
+    const rows: string[][] = [header];
+    const s = ready.series;
+    const cs = compareReady?.series;
+    for (let i = 0; i < s.t.length; i++) {
+      const row = [
+        String(s.year[i]),
+        String(s.month[i]),
+        s.anomaly[i] == null ? "" : String(s.anomaly[i]),
+        s.value[i] == null ? "" : String(s.value[i]),
+      ];
+      if (compareReady && cs) {
+        row.push(cs.anomaly[i] == null ? "" : String(cs.anomaly[i]), cs.value[i] == null ? "" : String(cs.value[i]));
+      }
+      rows.push(row);
+    }
+    const csv = rows.map((r) => r.map((c) => `"${c.replace(/"/g, '""')}"`).join(",")).join("\n");
+    const url = URL.createObjectURL(new Blob([csv], { type: "text/csv" }));
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = compareReady
+      ? `terrapulse-${ready.region.id}-vs-${compareReady.region.id}-${variable}.csv`
+      : `terrapulse-${ready.region.id}-${variable}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
   }
 
   const years = useMemo(() => Array.from({ length: period[1] - period[0] + 1 }, (_, i) => period[0] + i), [period]);
@@ -395,7 +551,9 @@ export default function Dashboard() {
             <span><i className="mr-1 inline-block h-2.5 w-2.5 rounded-sm" style={{ background: COLORS.none }} />not significant</span>
           </div>
           <p className="mt-1 text-xs leading-relaxed text-slate-400">
-            Colours show this dataset&rsquo;s own result. Open a region to see whether a second dataset agrees.
+            A region is coloured when both tests give p &lt; 0.05 for that region on its own. This is before the correction for testing{" "}
+            {overview?.multiple_testing.n_tests ?? 8} regions at once; section 5 gives the corrected count. Colours show this dataset&rsquo;s own
+            result. Open a region to see whether a second dataset agrees.
           </p>
           <label className="mt-3 block text-xs text-slate-400">
             Region
@@ -433,7 +591,7 @@ export default function Dashboard() {
               <h3 className="mt-2 text-lg font-semibold leading-snug text-white">{ready.verdict.title}</h3>
               <p className="mt-2 text-sm leading-relaxed text-slate-300">{ready.verdict.text}</p>
               {cross && (
-                <div className={`mt-3 rounded-md border p-2.5 ${CROSS_STYLE[cross.code].box}`}>
+                <div className={`mt-3 rounded-md border p-2.5 ${cross.known_issue ? CROSS_STYLE.not_confirmed.box : CROSS_STYLE[cross.code].box}`}>
                   <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
                     <span className="tp-fine uppercase tracking-wider text-slate-400">Second opinion</span>
                     <span className={`text-xs font-semibold ${CROSS_STYLE[cross.code].text}`}>{cross.label}</span>
@@ -447,6 +605,24 @@ export default function Dashboard() {
                       </a>
                     </p>
                   )}
+                  {cross.known_issue && (
+                    <div className="mt-2 border-t border-amber-400/30 pt-2">
+                      <p className="text-xs font-semibold text-amber-200">{cross.known_issue.title}</p>
+                      <p className="mt-1 text-xs leading-relaxed text-slate-300">{cross.known_issue.text}</p>
+                      <p className="mt-1 tp-fine leading-relaxed text-slate-400">
+                        Sources:{" "}
+                        {cross.known_issue.sources.map((src, i) => (
+                          <span key={src.url}>
+                            {i > 0 && "; "}
+                            <a className="text-sky-300 hover:underline" href={src.url}>
+                              {src.label} ↗
+                            </a>
+                          </span>
+                        ))}
+                        . {cross.known_issue.credit}
+                      </p>
+                    </div>
+                  )}
                 </div>
               )}
               <div className="mt-4 grid grid-cols-2 gap-2">
@@ -457,6 +633,11 @@ export default function Dashboard() {
                 <Stat label="Sen's slope" value={signed(t.theil_sen.slope_per_decade)} note={`${units} per decade`} />
                 <Stat label="Date windows agreeing" value={pct(ready.windows_summary.share_same_direction)} note={`of ${ready.windows_summary.n_windows} windows`} />
               </div>
+              <p className="mt-2 tp-fine leading-relaxed text-slate-400">
+                <span className="text-slate-200">What a p-value means:</span> if there were no real trend, how often chance alone would give a slope at
+                least this steep. Below 0.05 (less than 1 time in 20) counts as statistically significant. It is not the chance that the trend is real,
+                and it cannot tell whether the dataset itself is right.
+              </p>
               {det?.years_needed != null && (
                 <div className="mt-4">
                   <div className="flex justify-between text-xs text-slate-400">
@@ -540,15 +721,80 @@ export default function Dashboard() {
                 Reset to full record
               </button>
             )}
+            <label className="text-slate-400">
+              Compare with{" "}
+              <select
+                value={compareRegion ?? ""}
+                onChange={(e) => {
+                  const v = e.target.value || null;
+                  setCompareRegion(v);
+                  if (!v) setCompareAnalysis(null);
+                  setCompareError(null);
+                }}
+                className="rounded border border-slate-600 bg-slate-800 px-1.5 py-1 text-slate-100"
+                aria-label="Compare with another region"
+              >
+                <option value="">None</option>
+                {catalog?.regions
+                  .filter((r) => r.id !== region)
+                  .map((r) => (
+                    <option key={r.id} value={r.id}>
+                      {r.name} — {r.country}
+                    </option>
+                  ))}
+              </select>
+            </label>
+            <button type="button" onClick={downloadCsv} disabled={!ready} className="text-sky-300 hover:underline disabled:text-slate-500">
+              Download data as CSV
+            </button>
           </div>
+          {compareError && (
+            <p role="alert" className="mt-2 text-xs text-amber-200">
+              Could not load the comparison region: {compareError}
+            </p>
+          )}
+          {compareRegion && !compareReady && !compareError && <p className="mt-2 text-xs text-slate-400">Loading comparison…</p>}
           {seriesPlot && <Plot data={seriesPlot.data} layout={seriesPlot.layout} height={340} label={`Time series of ${ready?.variable.name} for ${ready?.region.name}`} />}
           {win && (
             <p className="text-xs leading-relaxed text-slate-300" aria-live="polite">
               <span className="font-medium text-white">
                 {start}–{end}:
               </span>{" "}
+              {compareReady && ready && <>{ready.region.name}: </>}
               {signed(win.slope_per_decade)} {units} per decade (95% range {signed(win.ci_low)} to {signed(win.ci_high)}), {pEq(win.p_value)} —{" "}
               {win.significant ? "statistically significant" : "not statistically significant"}.
+              {compareReady && ready && secondOpinion(ready)}
+              {compareReady && win2 && (
+                <>
+                  {" "}
+                  {compareReady.region.name}: {signed(win2.slope_per_decade)} {units} per decade (95% range {signed(win2.ci_low)} to {signed(win2.ci_high)}), {pEq(win2.p_value)} —{" "}
+                  {win2.significant ? "statistically significant" : "not statistically significant"}.
+                  {secondOpinion(compareReady)}
+                </>
+              )}
+              {compareReady && !win2 && <> {compareReady.region.name}: no trend can be computed for these years.</>}
+              {oppositeDirections && ready && compareReady && win2 && (
+                <>
+                  {" "}
+                  <span className="font-medium text-white">Opposite directions in this dataset:</span> {ready.variable.name} is{" "}
+                  {win.slope_per_decade > 0 ? "rising" : "falling"} in {ready.region.name} and {win2.slope_per_decade > 0 ? "rising" : "falling"} in{" "}
+                  {compareReady.region.name}
+                  {win.significant && win2.significant
+                    ? "; both trends are statistically significant here."
+                    : win.significant || win2.significant
+                      ? "; only one of the two is statistically significant."
+                      : "; neither is statistically significant, so the difference may be chance."}
+                  {weaklySupported(ready) || weaklySupported(compareReady)
+                    ? " An independent dataset does not fully back both trends (see each second opinion), so do not treat this contrast as established."
+                    : !ready.crosscheck || ready.crosscheck.code === "none"
+                      ? " No second dataset was checked for this variable, so the contrast rests on one dataset."
+                      : ""}
+                </>
+              )}
+              {compareReady &&
+                (view === "anomaly"
+                  ? " On the chart, thin lines are monthly values and shaded bands show the 95% range of each slope."
+                  : " On the chart, the thin line is the monthly value for the first region.")}
               {!isFull && " Custom date ranges use the persistence-adjusted t-test; the verdict card always describes the full record."}
             </p>
           )}
@@ -680,6 +926,12 @@ export default function Dashboard() {
             <p className="mt-1">The trend is recomputed for all {ready?.windows_summary.n_windows ?? 496} start/end-year windows, and across regions with a false-discovery correction. Where nothing is detected, we estimate how long a record would be needed. For rainfall and temperature the same trend is also computed from an independent record, and the verdict says whether the two agree.</p>
           </div>
         </div>
+        <p className="mt-4 text-xs leading-relaxed text-slate-300">
+          <span className="font-medium text-white">Detected is not validated.</span> A verdict says a trend is statistically detectable in one
+          dataset. Saying the environment really changed by that amount needs more: an independent record that agrees, and a check for known
+          problems in how the data were made. In the south-western Amazon both rainfall records fall, but a documented 2005 change in the rain
+          gauges behind MERRA-2 accounts for much of its faster rate. TerraPulse never says why a trend happened.
+        </p>
         <p className="mt-4 text-xs text-slate-400">
           Full methodology, formulas, tests and limitations:{" "}
           <a className="text-sky-300 hover:underline" href={`${REPO}/blob/main/docs/METHODOLOGY.md`}>docs/METHODOLOGY.md</a>.

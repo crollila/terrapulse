@@ -10,7 +10,7 @@ from fastapi.testclient import TestClient
 
 from terrapulse import analysis as an
 from terrapulse import crosscheck as cc
-from terrapulse import ndvi
+from terrapulse import data, ndvi
 from terrapulse.api import app
 from terrapulse.catalog import REGIONS, VARIABLES
 
@@ -136,6 +136,57 @@ def test_published_cross_check_results():
     rondonia = an.analysis("rondonia", "PRECTOTCORR")
     assert rondonia["crosscheck"]["trend"]["slope_per_decade"] == pytest.approx(-0.282, abs=2e-3)
     assert rondonia["trend"]["ols"]["slope_per_decade"] == pytest.approx(-0.541, abs=2e-3)
+
+
+# ------------------------------------------------------- known data issues
+
+
+def test_documented_amazon_rainfall_break_is_tested_against_the_committed_series():
+    """Reichle et al. (2017): MERRA-2 corrected rainfall drops against GPCP in the Amazon from 2005.
+
+    The numbers below are quoted in the README, the methodology and the submission text.
+    """
+    an.clear_caches()
+    check = an.analysis("rondonia", "PRECTOTCORR")["crosscheck"]
+    issue = check["known_issue"]
+    assert check["code"] == "direction_only"
+    assert issue["break_year"] == 2005 == issue["best_fit_break_year"]  # the documented year is also the best fit
+    assert issue["gap_before"] == pytest.approx(-0.13, abs=0.01) and issue["gap_after"] == pytest.approx(-0.99, abs=0.01)
+    assert issue["step"]["value"] == pytest.approx(-1.07, abs=0.01)
+    assert issue["step"]["ci_low"] == pytest.approx(-1.51, abs=0.01) and issue["step"]["ci_high"] == pytest.approx(-0.63, abs=0.01)
+    assert issue["drift_per_decade"]["ci_low"] < 0 < issue["drift_per_decade"]["ci_high"]  # nothing left but the jump
+    before, after = issue["periods"]
+    assert (before["start"], before["end"], after["start"], after["end"]) == (1981, 2004, 2005, 2025)
+    assert before["main"]["slope_per_decade"] == pytest.approx(-0.14, abs=0.01)
+    assert before["independent"]["slope_per_decade"] == pytest.approx(-0.14, abs=0.01)
+    assert not before["main"]["significant"] and not before["independent"]["significant"]
+    assert after["main"]["slope_per_decade"] == pytest.approx(-0.59, abs=0.01)
+    assert after["independent"]["slope_per_decade"] == pytest.approx(-0.83, abs=0.01)
+    assert after["main"]["significant"] and after["independent"]["significant"]
+    assert before["ranges_overlap"] and after["ranges_overlap"]
+    text = issue["text"]
+    assert "Reichle et al. 2017" in text and "not a validated change" in text and "size is not confirmed" in text
+    assert "deforestation" not in text.lower() and "caused" not in text.lower()  # no cause of the rainfall change is claimed
+    assert len(issue["sources"]) == 3 and all(s["url"].startswith("https://") and s["label"] for s in issue["sources"])
+    served = client.get("/api/analysis/rondonia/PRECTOTCORR").json()["crosscheck"]["known_issue"]
+    assert served["id"] == issue["id"] and served["text"] == text
+
+
+def test_known_issues_are_shown_only_where_one_is_documented():
+    an.clear_caches()
+    flagged = {(r, v) for r in REGIONS for v in data.available_variables() if "known_issue" in an.analysis(r, v)["crosscheck"]}
+    assert flagged == set(cc.KNOWN_ISSUES) == {("rondonia", "PRECTOTCORR"), ("rondonia", "GWETROOT")}
+    soil = an.analysis("rondonia", "GWETROOT")["crosscheck"]
+    assert soil["code"] == "none" and "break_year" not in soil["known_issue"]
+    assert "has not tested" in soil["known_issue"]["text"]  # an untested caveat must say so
+
+
+def test_best_break_year_finds_a_planted_step():
+    year = np.repeat(np.arange(1981, 2026), 12)
+    t = year + (np.tile(np.arange(1, 13), 45) - 0.5) / 12
+    rng = np.random.default_rng(3)
+    y = np.where(year >= 1997, -0.8, 0.0) + rng.normal(0, 0.3, len(t))
+    assert cc.best_break_year(t, year, y) == 1997
 
 
 # -------------------------------------------------------------- region boxes

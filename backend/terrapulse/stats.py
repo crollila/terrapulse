@@ -153,6 +153,52 @@ def ols_trend(t: np.ndarray, y: np.ndarray, alpha: float = ALPHA) -> dict:
     }
 
 
+def level_shift(t: np.ndarray, y: np.ndarray, after: np.ndarray, alpha: float = ALPHA) -> dict:
+    """Size of a step in ``y`` at a known date, with a steady drift allowed.
+
+    Fits ``y = a + b (t - mean t) + c * after`` by least squares, where ``after``
+    is False before the date and True from it on; ``c`` is the step and ``b`` the
+    drift. Standard errors allow for month-to-month persistence in the same way
+    as ols_trend: the residual variance uses the effective sample size
+    n_eff = n (1 - r1) / (1 + r1).
+
+    The date must come from outside the data (a documented change in a dataset).
+    Picking the date that fits best and then testing it would overstate the evidence.
+    """
+    t = np.asarray(t, dtype=float)
+    y = np.asarray(y, dtype=float)
+    after = np.asarray(after, dtype=bool)
+    ok = np.isfinite(t) & np.isfinite(y)
+    t, y, after = t[ok], y[ok], after[ok]
+    n = len(y)
+    if n < 24 or after.sum() < 12 or (~after).sum() < 12:
+        raise ValueError("need at least 12 valid points on each side of the date")
+    design = np.column_stack([np.ones(n), t - t.mean(), after.astype(float)])
+    beta, *_ = np.linalg.lstsq(design, y, rcond=None)
+    resid = y - design @ beta
+    sse = float(resid @ resid)
+    r1 = lag1_autocorrelation_at(t, resid)
+    r1_used = min(max(r1, 0.0), 0.99)
+    n_eff = max(5.0, n * (1 - r1_used) / (1 + r1_used))
+    df = n_eff - 3
+    se = np.sqrt(np.diag(np.linalg.inv(design.T @ design)) * sse / df)
+    tcrit = float(sps.t.ppf(1 - alpha / 2, df))
+
+    def _term(i: int) -> dict:
+        value, err = float(beta[i]), float(se[i])
+        p = 1.0 if err == 0 and value == 0 else (0.0 if err == 0 else float(2 * sps.t.sf(abs(value / err), df)))
+        return {"value": value, "se": err, "ci_low": value - tcrit * err, "ci_high": value + tcrit * err, "p_value": p}
+
+    return {
+        "n": n,
+        "step": _term(2),
+        "drift_per_year": _term(1),
+        "lag1_autocorrelation": r1,
+        "n_effective": n_eff,
+        "sse": sse,
+    }
+
+
 def _mk_score(x: np.ndarray) -> float:
     n = len(x)
     s = 0.0

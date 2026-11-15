@@ -15,7 +15,9 @@ type Props = {
 const BASE_LAYOUT = {
   paper_bgcolor: "rgba(0,0,0,0)",
   plot_bgcolor: "rgba(0,0,0,0)",
-  font: { color: COLORS.ink, family: "inherit", size: 12 },
+  // An explicit font stack (the page's own). With "inherit", Plotly measured legend text in one
+  // font and drew it in another, so the last legend entry was clipped by a few pixels.
+  font: { color: COLORS.ink, family: 'ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif', size: 12 },
   margin: { l: 56, r: 16, t: 12, b: 44 },
   hoverlabel: { bgcolor: "#0f172a", bordercolor: "#334155", font: { color: "#e2e8f0" } },
   legend: { orientation: "h", y: 1.12, x: 0, font: { size: 11 } },
