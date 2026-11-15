@@ -43,6 +43,11 @@ const CASES = [
 
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
+// Issue #3: the comparison region is drawn in violet, so it stays apart from the
+// primary region (which keeps its direction colour: amber up, sky blue down, grey
+// when not significant) in the legend and on the chart even where the two cross.
+const COMPARE_COLOR = "#a78bfa";
+
 const VERDICT_STYLE: Record<VerdictCode, { label: string; cls: string }> = {
   robust: { label: "Holds across dates", cls: "border-emerald-400/50 bg-emerald-400/10 text-emerald-200" },
   date_sensitive: { label: "Depends on dates", cls: "border-amber-400/50 bg-amber-400/10 text-amber-200" },
@@ -94,6 +99,11 @@ export default function Dashboard() {
   const [range, setRange] = useState<[number, number] | null>(null);
   const [view, setView] = useState<"anomaly" | "raw">("anomaly");
   const [error, setError] = useState<string | null>(null);
+  // Issue #3: the region to compare with, if any. Its data is fetched with the same
+  // getAnalysis(region, variable) call as the primary region; no backend change needed.
+  const [compareRegion, setCompareRegion] = useState<string | null>(null);
+  const [compareAnalysis, setCompareAnalysis] = useState<Analysis | null>(null);
+  const [compareError, setCompareError] = useState<string | null>(null);
 
   useEffect(() => {
     getCatalog().then(setCatalog).catch((e) => setError(String(e.message ?? e)));
@@ -119,7 +129,22 @@ export default function Dashboard() {
     };
   }, [region, variable]);
 
+  useEffect(() => {
+    if (!compareRegion) return;
+    let live = true;
+    getAnalysis(compareRegion, variable)
+      .then((a) => live && setCompareAnalysis(a))
+      .catch((e) => live && setCompareError(String(e.message ?? e)));
+    return () => {
+      live = false;
+    };
+  }, [compareRegion, variable]);
+
   const ready = analysis && analysis.region.id === region && analysis.variable.id === variable ? analysis : null;
+  const compareReady =
+    compareAnalysis && compareRegion && compareAnalysis.region.id === compareRegion && compareAnalysis.variable.id === variable
+      ? compareAnalysis
+      : null;
   const variableInfo = catalog?.variables.find((v) => v.id === variable);
   // Each variable has its own record length (NDVI starts in 2000, the MERRA-2 variables in 1981).
   const period = useMemo<[number, number]>(() => variableInfo?.period ?? catalog?.period ?? [1981, 2025], [variableInfo, catalog]);
@@ -129,6 +154,13 @@ export default function Dashboard() {
   const units = ready?.variable.units ?? "";
 
   const win = useMemo(() => ready?.windows.find((w) => w.start === start && w.end === end) ?? null, [ready, start, end]);
+  const win2 = useMemo(
+    () => compareReady?.windows.find((w) => w.start === start && w.end === end) ?? null,
+    [compareReady, start, end],
+  );
+  // The point of the comparison (issue #3): one variable can trend in opposite
+  // directions in different places. Say so plainly in the caption when it happens.
+  const oppositeDirections = win && win2 ? win.slope_per_decade * win2.slope_per_decade < 0 : false;
 
   const seriesPlot = useMemo(() => {
     if (!ready || !win) return null;
@@ -140,7 +172,7 @@ export default function Dashboard() {
         y,
         type: "scatter",
         mode: "lines",
-        name: view === "anomaly" ? "Monthly anomaly" : "Monthly value",
+        name: view === "anomaly" ? `Monthly anomaly · ${ready.region.name}` : `Monthly value · ${ready.region.name}`,
         line: { color: "rgba(148,163,184,0.75)", width: 1 },
         hovertemplate: `%{x:.2f}: %{y:.3f} ${units}<extra></extra>`,
       },
@@ -151,12 +183,37 @@ export default function Dashboard() {
         y: s.annual_mean,
         type: "scatter",
         mode: "lines+markers",
-        name: "Annual mean",
+        name: `Annual mean · ${ready.region.name}`,
         line: { color: COLORS.ink, width: 2 },
         marker: { size: 4 },
         hovertemplate: `%{x:.0f}: %{y:.3f} ${units}<extra></extra>`,
       });
+      // Raw values sit at different levels in different places, so the comparison
+      // overlays the second region's annual mean rather than its monthly values.
+      if (compareReady && compareReady.series.annual_year.length > 0) {
+        data.push({
+          x: compareReady.series.annual_year.map((v) => v + 0.5),
+          y: compareReady.series.annual_mean,
+          type: "scatter",
+          mode: "lines+markers",
+          name: `Annual mean · ${compareReady.region.name}`,
+          line: { color: COMPARE_COLOR, width: 2, dash: "dash" },
+          marker: { size: 4 },
+          hovertemplate: `%{x:.0f}: %{y:.3f} ${units}<extra></extra>`,
+        });
+      }
     } else if (view !== "raw") {
+      if (compareReady) {
+        data.push({
+          x: compareReady.series.t,
+          y: compareReady.series.anomaly,
+          type: "scatter",
+          mode: "lines",
+          name: `Monthly anomaly · ${compareReady.region.name}`,
+          line: { color: "rgba(167,139,250,0.75)", width: 1, dash: "dot" },
+          hovertemplate: `%{x:.2f}: %{y:.3f} ${units}<extra></extra>`,
+        });
+      }
       const x0 = start;
       const x1 = end + 1;
       const b = win.slope_per_decade / 10;
@@ -175,7 +232,7 @@ export default function Dashboard() {
           mode: "lines",
           line: { width: 0 },
           fillcolor: color + "33",
-          name: "95% range of slope",
+          name: `95% range of slope · ${ready.region.name}`,
           hoverinfo: "skip",
         },
         {
@@ -183,11 +240,40 @@ export default function Dashboard() {
           y: line(win.slope_per_decade),
           type: "scatter",
           mode: "lines",
-          name: "Trend",
+          name: `Trend · ${ready.region.name}`,
           line: { color, width: 3 },
           hoverinfo: "skip",
         },
       );
+      if (compareReady && win2) {
+        const b2 = win2.slope_per_decade / 10;
+        const ymid2 = win2.intercept + b2 * mid;
+        const line2 = (slope: number) => [ymid2 + (slope / 10) * (x0 - mid), ymid2 + (slope / 10) * (x1 - mid)];
+        const lo2 = line2(win2.ci_low);
+        const hi2 = line2(win2.ci_high);
+        data.push(
+          {
+            x: [x0, x1, x1, x0],
+            y: [lo2[0], lo2[1], hi2[1], hi2[0]],
+            type: "scatter",
+            fill: "toself",
+            mode: "lines",
+            line: { width: 0 },
+            fillcolor: COMPARE_COLOR + "26",
+            name: `95% range of slope · ${compareReady.region.name}`,
+            hoverinfo: "skip",
+          },
+          {
+            x: [x0, x1],
+            y: line2(win2.slope_per_decade),
+            type: "scatter",
+            mode: "lines",
+            name: `Trend · ${compareReady.region.name}`,
+            line: { color: COMPARE_COLOR, width: 3, dash: "dash" },
+            hoverinfo: "skip",
+          },
+        );
+      }
     }
     return {
       data,
@@ -198,7 +284,7 @@ export default function Dashboard() {
         legend: { orientation: "h", y: -0.24, x: 0 },
       },
     };
-  }, [ready, win, view, start, end, units, period]);
+  }, [ready, win, win2, compareReady, view, start, end, units, period]);
 
   const heatPlot = useMemo(() => {
     if (!ready) return null;
@@ -309,6 +395,44 @@ export default function Dashboard() {
     setVariable(variableId);
     setRange(null);
     setView("anomaly");
+    // A region cannot be compared with itself.
+    if (compareRegion === regionId) {
+      setCompareRegion(null);
+      setCompareAnalysis(null);
+      setCompareError(null);
+    }
+  }
+
+  // Issue #3 welcome polish: download the series behind the time-series chart
+  // (primary region, plus the comparison region when one is selected) as CSV.
+  function downloadCsv() {
+    if (!ready) return;
+    const header = ["year", "month", `${ready.region.name} anomaly (${units})`, `${ready.region.name} value (${units})`];
+    if (compareReady) header.push(`${compareReady.region.name} anomaly (${units})`, `${compareReady.region.name} value (${units})`);
+    const rows: string[][] = [header];
+    const s = ready.series;
+    const cs = compareReady?.series;
+    for (let i = 0; i < s.t.length; i++) {
+      const row = [
+        String(s.year[i]),
+        String(s.month[i]),
+        s.anomaly[i] == null ? "" : String(s.anomaly[i]),
+        s.value[i] == null ? "" : String(s.value[i]),
+      ];
+      if (compareReady && cs) {
+        row.push(cs.anomaly[i] == null ? "" : String(cs.anomaly[i]), cs.value[i] == null ? "" : String(cs.value[i]));
+      }
+      rows.push(row);
+    }
+    const csv = rows.map((r) => r.map((c) => `"${c.replace(/"/g, '""')}"`).join(",")).join("\n");
+    const url = URL.createObjectURL(new Blob([csv], { type: "text/csv" }));
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = compareReady
+      ? `terrapulse-${ready.region.id}-vs-${compareReady.region.id}-${variable}.csv`
+      : `terrapulse-${ready.region.id}-${variable}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
   }
 
   const years = useMemo(() => Array.from({ length: period[1] - period[0] + 1 }, (_, i) => period[0] + i), [period]);
@@ -540,15 +664,64 @@ export default function Dashboard() {
                 Reset to full record
               </button>
             )}
+            <label className="text-slate-400">
+              Compare with{" "}
+              <select
+                value={compareRegion ?? ""}
+                onChange={(e) => {
+                  const v = e.target.value || null;
+                  setCompareRegion(v);
+                  if (!v) setCompareAnalysis(null);
+                  setCompareError(null);
+                }}
+                className="rounded border border-slate-600 bg-slate-800 px-1.5 py-1 text-slate-100"
+                aria-label="Compare with another region"
+              >
+                <option value="">None</option>
+                {catalog?.regions
+                  .filter((r) => r.id !== region)
+                  .map((r) => (
+                    <option key={r.id} value={r.id}>
+                      {r.name} — {r.country}
+                    </option>
+                  ))}
+              </select>
+            </label>
+            <button type="button" onClick={downloadCsv} disabled={!ready} className="text-sky-300 hover:underline disabled:text-slate-500">
+              Download data as CSV
+            </button>
           </div>
+          {compareError && (
+            <p role="alert" className="mt-2 text-xs text-amber-200">
+              Could not load the comparison region: {compareError}
+            </p>
+          )}
+          {compareRegion && !compareReady && !compareError && <p className="mt-2 text-xs text-slate-400">Loading comparison…</p>}
           {seriesPlot && <Plot data={seriesPlot.data} layout={seriesPlot.layout} height={340} label={`Time series of ${ready?.variable.name} for ${ready?.region.name}`} />}
           {win && (
             <p className="text-xs leading-relaxed text-slate-300" aria-live="polite">
               <span className="font-medium text-white">
                 {start}–{end}:
               </span>{" "}
-              {signed(win.slope_per_decade)} {units} per decade (95% range {signed(win.ci_low)} to {signed(win.ci_high)}), {pEq(win.p_value)} —{" "}
+              {ready?.region.name}: {signed(win.slope_per_decade)} {units} per decade (95% range {signed(win.ci_low)} to {signed(win.ci_high)}), {pEq(win.p_value)} —{" "}
               {win.significant ? "statistically significant" : "not statistically significant"}.
+              {compareReady && win2 && (
+                <>
+                  {" "}
+                  {compareReady.region.name}: {signed(win2.slope_per_decade)} {units} per decade (95% range {signed(win2.ci_low)} to {signed(win2.ci_high)}), {pEq(win2.p_value)} —{" "}
+                  {win2.significant ? "statistically significant" : "not statistically significant"}.
+                </>
+              )}
+              {oppositeDirections && compareReady && win2 && (
+                <>
+                  {" "}
+                  <span className="font-medium text-white">Opposite directions:</span> {ready?.variable.name} is {win.slope_per_decade > 0 ? "rising" : "falling"} in{" "}
+                  {ready?.region.name} but {win2.slope_per_decade > 0 ? "rising" : "falling"} in {compareReady.region.name}
+                  {win.significant && win2.significant
+                    ? " — both trends are statistically significant."
+                    : " — check which of the two is statistically significant before trusting it."}
+                </>
+              )}
               {!isFull && " Custom date ranges use the persistence-adjusted t-test; the verdict card always describes the full record."}
             </p>
           )}
