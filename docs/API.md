@@ -53,7 +53,18 @@ years or outside the variable's period: `422`. `start` and `end` default to the 
     "period", "trend": { "slope_per_decade", "ci_low", "ci_high", "p_value", "mk_p_value", "significant", "n_months" },
     "anomaly_correlation", "cells", "retrieved_utc",
     "dataset": { "id", "name", "long_name", "kind", "native_grid", "access", "url", "citation", "caveat" }
-  },                                // code "none" carries only code, label and text
+    "known_issue": {                // only where a data problem is documented for this region and variable
+      "id", "title", "text", "credit", "sources": [{ "label", "url" }],
+      // the fields below are present when the issue is tested against the committed series:
+      "break_year", "independent_dataset", "gap_before", "gap_after",
+      "step": { "value", "ci_low", "ci_high", "p_value" },
+      "drift_per_decade": { "value", "ci_low", "ci_high" },
+      "best_fit_break_year",
+      "periods": [{ "start", "end", "ranges_overlap",
+                    "main": { "slope_per_decade", "ci_low", "ci_high", "p_value", "significant" },
+                    "independent": { ... } }]
+    }
+  },                                // code "none" carries only code, label, text and any known_issue
   "quality": { "months_total", "months_missing", "coverage", "grid_cells", "min_cells_valid",
                "lag1_autocorrelation", "n_effective", "units_reported_by_nasa",
                "months_used", "calendar_months_excluded" },
