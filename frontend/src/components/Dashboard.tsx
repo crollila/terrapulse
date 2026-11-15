@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import dynamic from "next/dynamic";
 import Plot from "./Plot";
 import { DATA_MODE, getAnalysis, getCatalog, getOverview, type Analysis, type Catalog, type CrosscheckCode, type Overview, type VerdictCode } from "@/lib/api";
@@ -85,6 +85,20 @@ function weaklySupported(a: Analysis): boolean {
   return code === "not_confirmed" || code === "direction_only" || code === "missed" || code === "conflict" || !!a.crosscheck?.known_issue;
 }
 
+// True on phone-width screens (below Tailwind's "sm" breakpoint). False during prerendering.
+const NARROW = "(max-width: 639px)";
+function useNarrow(): boolean {
+  return useSyncExternalStore(
+    (onChange) => {
+      const mq = window.matchMedia(NARROW);
+      mq.addEventListener("change", onChange);
+      return () => mq.removeEventListener("change", onChange);
+    },
+    () => window.matchMedia(NARROW).matches,
+    () => false,
+  );
+}
+
 const lat = (v: number) => `${Math.abs(v)}°${v < 0 ? "S" : "N"}`;
 const lon = (v: number) => `${Math.abs(v)}°${v < 0 ? "W" : "E"}`;
 
@@ -122,6 +136,7 @@ export default function Dashboard() {
   const [compareRegion, setCompareRegion] = useState<string | null>(null);
   const [compareAnalysis, setCompareAnalysis] = useState<Analysis | null>(null);
   const [compareError, setCompareError] = useState<string | null>(null);
+  const narrow = useNarrow();
 
   useEffect(() => {
     getCatalog().then(setCatalog).catch((e) => setError(String(e.message ?? e)));
@@ -394,7 +409,8 @@ export default function Dashboard() {
         {
           type: "scatter",
           mode: "markers",
-          y: rows.map((r) => r.name),
+          // Full names need a 210 px margin, which leaves almost no chart on a phone.
+          y: rows.map((r) => (narrow ? (r.short_name ?? r.name) : r.name)),
           x: rows.map((r) => r.slope_per_decade),
           customdata: rows.map((r) => r.region),
           error_x: {
@@ -414,13 +430,15 @@ export default function Dashboard() {
         },
       ],
       layout: {
-        xaxis: { title: { text: `Trend, ${period[0]}–${period[1]} (${overview.variable.units} per decade)` }, zeroline: true },
+        // Kept short: the plot area is narrow on a phone and a longer title was cut off. The card
+        // heading already says this is the full-record trend.
+        xaxis: { title: { text: `${overview.variable.units} per decade` }, zeroline: true },
         yaxis: { automargin: true, ticksuffix: "  " },
-        margin: { l: 210 },
+        margin: { l: narrow ? 96 : 210 },
         showlegend: false,
       },
     };
-  }, [overview, variable, region, period]);
+  }, [overview, variable, region, narrow]);
 
   function pick(regionId: string, variableId: string) {
     setRegion(regionId);
@@ -721,7 +739,9 @@ export default function Dashboard() {
                 Reset to full record
               </button>
             )}
-            <label className="text-slate-400">
+            {/* The option text is long, and a select is as wide as its longest option: on a phone it
+                takes a full row and may not exceed it, or the whole page scrolls sideways. */}
+            <label className="block w-full min-w-0 max-w-full text-slate-400 sm:w-auto">
               Compare with{" "}
               <select
                 value={compareRegion ?? ""}
@@ -731,7 +751,7 @@ export default function Dashboard() {
                   if (!v) setCompareAnalysis(null);
                   setCompareError(null);
                 }}
-                className="rounded border border-slate-600 bg-slate-800 px-1.5 py-1 text-slate-100"
+                className="mt-1 block w-full max-w-full rounded border border-slate-600 bg-slate-800 px-1.5 py-1 text-slate-100 sm:mt-0 sm:inline-block sm:w-auto"
                 aria-label="Compare with another region"
               >
                 <option value="">None</option>
