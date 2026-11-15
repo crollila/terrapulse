@@ -142,6 +142,35 @@ def test_deseasonalize_removes_a_pure_seasonal_cycle():
     assert stats.ols_trend(t, y)["residual_std"] > 50 * stats.ols_trend(t, anomalies)["residual_std"]
 
 
+def test_level_shift_matches_statsmodels_and_recovers_a_known_step():
+    rng = np.random.default_rng(7)
+    year, _, t = _time(45)
+    after = year >= 2005
+    y = 0.02 * (t - t[0]) - 1.0 * after + rng.normal(0, 0.6, len(t))
+    ours = stats.level_shift(t, y, after)
+    ref = sm.OLS(y, np.column_stack([np.ones(len(t)), t - t.mean(), after.astype(float)])).fit()
+    assert ours["step"]["value"] == pytest.approx(ref.params[2], rel=1e-9)
+    assert ours["drift_per_year"]["value"] == pytest.approx(ref.params[1], rel=1e-9)
+    assert ours["step"]["ci_low"] < -1.0 < ours["step"]["ci_high"] and ours["step"]["p_value"] < 0.001
+    assert ours["drift_per_year"]["ci_low"] < 0.02 < ours["drift_per_year"]["ci_high"]
+    # with independent noise the adjusted standard error is close to the textbook one
+    assert ours["step"]["se"] == pytest.approx(ref.bse[2], rel=0.15)
+
+
+def test_level_shift_does_not_mistake_a_steady_trend_for_a_step():
+    rng = np.random.default_rng(11)
+    year, _, t = _time(45)
+    after = year >= 2005
+    y = -0.05 * (t - t[0]) + _ar1(rng, len(t), 0.6, 0.5)  # a trend with persistence, and no step
+    fit = stats.level_shift(t, y, after)
+    assert fit["step"]["ci_low"] < 0 < fit["step"]["ci_high"]
+    assert fit["drift_per_year"]["ci_low"] < -0.05 < fit["drift_per_year"]["ci_high"]
+    naive = sm.OLS(y, np.column_stack([np.ones(len(t)), t - t.mean(), after.astype(float)])).fit()
+    assert fit["step"]["se"] > 1.5 * naive.bse[2]  # persistence widens the range
+    with pytest.raises(ValueError):
+        stats.level_shift(t[:20], y[:20], after[:20])
+
+
 def test_years_to_detect_hand_calculation():
     # sigma 1, trend 0.1/yr, no autocorrelation: (3.3 * 10)^(2/3) = 10.288
     res = stats.years_to_detect(0.1, 1.0, 0.0, 30)
