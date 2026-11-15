@@ -15,6 +15,16 @@ export type Region = {
 
 export type CrosscheckCode = "agrees" | "agrees_none" | "direction_only" | "not_confirmed" | "missed" | "conflict" | "none";
 
+/** A documented problem in how a dataset was built that affects one region and variable. */
+export type KnownIssue = {
+  id: string;
+  title: string;
+  text: string;
+  sources: { label: string; url: string }[];
+  credit?: string;
+  break_year?: number;
+};
+
 /** The same trend computed from an independent dataset, where one exists. */
 export type Crosscheck = {
   code: CrosscheckCode;
@@ -25,6 +35,7 @@ export type Crosscheck = {
   anomaly_correlation?: number | null;
   dataset?: { id: string; name: string; long_name: string; kind: string; native_grid: string; access: string; url: string; citation: string; caveat: string };
   cells?: number | null;
+  known_issue?: KnownIssue;
 };
 export type Variable = {
   id: string;
